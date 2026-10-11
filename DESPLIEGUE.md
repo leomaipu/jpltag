@@ -57,13 +57,47 @@ desde `requirements.txt` (generado con `pip-compile --generate-hashes`,
 verificado con `pip-audit` — ver README.md) y corre `collectstatic`
 durante la construcción, antes de bajar a un usuario sin privilegios.
 
-> Esta imagen no se pudo construir en el entorno donde se escribió este
-> repositorio (su política de red bloquea `registry-1.docker.io`, de
-> donde sale la imagen base `python:3.13-slim`) — si falla algo en el
-> primer build real en el servidor, revisar primero eso antes de asumir
-> un error del Dockerfile. Todo lo demás (resolución de dependencias con
-> hash, `pip-audit`, y la aplicación completa con `manage.py test` y con
-> el cliente de pruebas de Django) sí se verificó.
+> La imagen en sí (`docker build`) no se pudo construir en el entorno
+> donde se escribió este repositorio: su política de red bloquea todos
+> los registries de contenedores probados (Docker Hub, GHCR, Microsoft
+> Container Registry, Amazon ECR Public — los cuatro devuelven 403 de
+> política, confirmado explícitamente, no un problema transitorio), así
+> que no hay forma de bajar `python:3.13-slim` desde ahí. Dicho eso, se
+> simuló cada paso del Dockerfile y del docker-compose.yml fuera del
+> contenedor, con el mismo intérprete y las mismas dependencias, y con
+> un usuario de sistema sin privilegios y el árbol de la app en **modo
+> de solo lectura real** (permisos del filesystem, no solo `read_only`
+> de Docker) para reproducir las mismas restricciones:
+> - `collectstatic` (igual que en el build) — sin errores, gracias a
+>   `WHITENOISE_MANIFEST_STRICT = False`.
+> - `gunicorn ... --no-control-socket` arranca limpio y confirma
+>   "Control socket disabled" — la lección del socket en `$HOME` está
+>   resuelta.
+> - Con el código fuente en solo lectura y corriendo como un usuario sin
+>   privilegios (no root), el flujo real completo — login → subir
+>   nómina → generar cartas → ver resultado → descargar — funcionó de
+>   punta a punta, y el `.docx` descargado se abrió con `python-docx` y
+>   tenía el contenido esperado (las 2 infracciones de la patente de
+>   prueba agrupadas en 1 sola carta). Esto confirma que `media/` y
+>   `salidas/` como únicos directorios escribibles (los volúmenes
+>   nombrados del compose) es suficiente — la app no necesita escribir
+>   en ningún otro lado en tiempo de ejecución.
+> - Un hallazgo real de esta prueba: con más de 1 worker de gunicorn y
+>   sin Valkey (`CACHES` cae a una caché en memoria, una por proceso),
+>   la sesión de un usuario se "pierde" según a qué worker caiga cada
+>   request — cada uno tiene su propia caché. **No es un bug de la app**:
+>   es la razón por la que `SESSION_ENGINE` depende de Valkey (un único
+>   store compartido entre los 3 workers de gunicorn) y por la que el
+>   fallback a caché en memoria de `config/settings.py` es explícitamente
+>   solo para desarrollo de un solo proceso. En producción, con
+>   `VALKEY_URL` siempre presente (viene de `maipu-nueva-bd`), esto no
+>   aplica — pero si alguna vez el contenedor arranca sin esa variable,
+>   la señal va a ser exactamente esta: usuarios que aparentemente se
+>   desloguean solos a mitad de una sesión.
+>
+> Lo único que falta probar es el `docker build` mismo (bajar la imagen
+> base y armar las capas) — hacerlo como primer paso real en el servidor,
+> antes de dar la Fase 1 por cerrada.
 
 ## 4. Levantar el contenedor
 

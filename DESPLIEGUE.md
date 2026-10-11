@@ -13,6 +13,19 @@ este repositorio — ver la sección 0 de abajo). El número definitivo es
 un secreto real dentro del repo — todos van a `/opt/maiproject/...` en el
 servidor, que nunca se sube a git.
 
+**Antes de generar el `.tar.gz` de cada versión**, correr las dos suites
+de pruebas (ver README.md § Pruebas):
+
+```bash
+python -m unittest discover -s motor/tests -t .
+python manage.py test
+```
+
+La segunda incluye `procesos/tests/`: login, permisos por rol, el flujo
+completo subir → generar → descargar, y que un usuario de un Juzgado no
+pueda ver ni descargar los resultados de otro. Si algo de esto falla, no
+generar el tarball — corregirlo primero.
+
 ## 0. El script de despliegue no vive en este repositorio
 
 `13-app-jpltag.sh` es un script de infraestructura del servidor, igual

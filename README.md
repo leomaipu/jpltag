@@ -93,7 +93,13 @@ Django:
 python -m unittest discover -s motor/tests -t .
 ```
 
-Y la aplicación completa:
+`procesos/tests/` prueba la app web sobre ese motor — login (incluido el
+bloqueo de django-axes tras 5 intentos), los permisos de cada rol,
+el flujo completo subir → generar → ver resultado → descargar, y lo más
+importante: que un usuario de un Juzgado nunca pueda ver ni descargar
+los resultados de otro (ahí está el RUT, el domicilio y el nombre del
+infractor). Correr ambas suites (motor + procesos) antes de cada
+despliegue:
 
 ```bash
 python manage.py check

@@ -382,3 +382,32 @@ de este entorno de desarrollo, pero no se verificó); si el botón muestra
 "No se pudo consultar el valor UTM vigente" en el servidor, el primer
 sospechoso es la salida a internet del contenedor (firewall/proxy), no
 el código.
+
+**Hallazgo real de `manage.py check --deploy` contra el servidor
+(11-oct-2026):** Leonardo lo corrió dentro del contenedor ya publicado
+(`docker exec maipu-jpltag python manage.py check --deploy`) y salieron
+dos warnings, `security.W004` (sin `SECURE_HSTS_SECONDS`) y `security.W008`
+(`SECURE_SSL_REDIRECT` no es `True`). Se revisaron por separado porque no
+es seguro "arreglar" los dos de la misma forma:
+
+- **HSTS (W004) sí se activó** en `config/settings.py`
+  (`SECURE_HSTS_SECONDS`, `..._INCLUDE_SUBDOMAINS`, `..._PRELOAD`, todo
+  condicionado a `not DEBUG`) — es seguro porque `SecurityMiddleware`
+  solo agrega esa cabecera cuando la request llega con
+  `X-Forwarded-Proto: https` (ver `SECURE_PROXY_SSL_HEADER`), algo que ni
+  el healthcheck del `compose.yaml` ni la prueba de login dentro del
+  contenedor (§0 y más arriba en esta sección) mandan — confirmado con
+  una prueba puntual: la misma vista responde 200 sin esa cabecera y
+  sigue respondiendo 200 con `Strict-Transport-Security` cuando sí se
+  manda, simulando ambos casos.
+- **`SECURE_SSL_REDIRECT` (W008) se dejó deliberadamente en `False`**, y
+  el warning se silencia a propósito (`SILENCED_SYSTEM_CHECKS`) en vez de
+  activar el setting: es HAProxy quien termina el TLS y decide si
+  redirige HTTP→HTTPS en el borde, Django nunca ve esa conexión. Si se
+  pusiera en `True`, Django redirigiría también el tráfico HTTP interno
+  sin esa cabecera — exactamente el que usan el healthcheck y la prueba
+  de login recién mencionados — rompiendo ambos. Queda pendiente, pero
+  fuera de este repositorio: confirmar con quien administra HAProxy que
+  el borde efectivamente redirige HTTP→HTTPS para `jpltag.maiproject.cl`
+  (se asume que sí, igual que las otras dos apps, pero no se verificó
+  desde acá).

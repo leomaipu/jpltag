@@ -44,6 +44,33 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
+# HSTS (manage.py check --deploy, 11-oct-2026): activarlo acá es seguro
+# aunque la app también reciba tráfico HTTP interno sin terminar en TLS
+# (el healthcheck del compose.yaml generado por 13-app-jpltag.sh, y la
+# prueba de login dentro del propio contenedor cuando JPLTAG_SOLO_IPS=si
+# — ver DESPLIEGUE.md §0 y §6): SecurityMiddleware solo agrega el header
+# Strict-Transport-Security cuando request.is_secure() es True, es decir
+# cuando ve X-Forwarded-Proto: https (SECURE_PROXY_SSL_HEADER, arriba) —
+# ninguna de esas dos pruebas internas manda esa cabecera, así que no les
+# afecta. jpltag.maiproject.cl no tiene subdominios propios, por eso
+# INCLUDE_SUBDOMAINS es inofensivo; PRELOAD solo agrega la directiva al
+# header — no inscribe el dominio en ninguna lista por su cuenta.
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000  # 1 año, recomendación de Django/Mozilla
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+
+# SECURE_SSL_REDIRECT (manage.py check --deploy, security.W008) se deja
+# DELIBERADAMENTE en False — NO es un olvido. HAProxy termina el TLS y,
+# igual que con las otras apps del servidor, es HAProxy quien decide si
+# redirige HTTP→HTTPS en el borde; Django nunca ve esa conexión. Si se
+# pusiera en True acá, redirigiría también el tráfico HTTP interno (sin
+# X-Forwarded-Proto: https) con el que YA se prueba la app dentro del
+# propio contenedor — el healthcheck del compose.yaml generado por
+# 13-app-jpltag.sh, y la prueba de login cuando JPLTAG_SOLO_IPS=si (ver
+# DESPLIEGUE.md §0 y §6) — rompiendo ambas, que hoy están verificadas y
+# funcionando. Se silencia el warning en vez de ignorarlo en silencio.
+SILENCED_SYSTEM_CHECKS = ["security.W008"]
+
 # ──────────────────────────────────────────────────────────────────────────
 # Apps y middleware
 # ──────────────────────────────────────────────────────────────────────────

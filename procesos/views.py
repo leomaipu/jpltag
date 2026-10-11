@@ -26,16 +26,21 @@ from django.views import View
 
 from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
 from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
-from motor.cartas import generar_cartas_certificadas
 from motor.fechas_en_letras import MESES, fecha_en_letras
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
+from motor.plantilla import generar_cartas_certificadas
 from motor.reportes import escribir_log_errores, exportar_duplicados
 from nucleo.models import BloqueHorario, Juzgado
 
-from .forms import BloqueHorarioForm, SubirNominaForm
+from .forms import BloqueHorarioForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
-from .permisos import PerfilRequeridoMixin, PuedeEditarAgendaMixin, PuedeGenerarCartasMixin
+from .permisos import (
+    PerfilRequeridoMixin,
+    PuedeEditarAgendaMixin,
+    PuedeEditarPlantillaMixin,
+    PuedeGenerarCartasMixin,
+)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -231,6 +236,7 @@ def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
             "logo_path": juzgado.logo.path if juzgado.logo else None,
             "sello_path": juzgado.sello_judicial.path if juzgado.sello_judicial else None,
             "firma_path": juzgado.firma.path if juzgado.firma else None,
+            "plantilla_word_path": juzgado.plantilla_word.path if juzgado.plantilla_word else None,
         }
 
         carpeta_cartas = carpeta_abs / "cartas"
@@ -373,3 +379,65 @@ class AgendaView(PerfilRequeridoMixin, View):
             "perfil": perfil, "juzgados": _juzgados_visibles(perfil), "juzgado": juzgado,
             "bloques": bloques, "form": form,
         })
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Plantilla y logos del Juzgado (Módulo 1 — plantilla Word editable,
+# Módulo 2 — logo/sello/firma propios, sin pasar por /admin/)
+# ══════════════════════════════════════════════════════════════════════
+
+class PlantillaView(PuedeEditarPlantillaMixin, View):
+    def get(self, request):
+        perfil = request.user.perfil
+        juzgado = _juzgado_actual(request, perfil)
+        if juzgado is None:
+            messages.error(request, "No hay ningún juzgado configurado todavía.")
+            return redirect("procesos:panel")
+        form = PlantillaJuzgadoForm(instance=juzgado)
+        return render(request, "procesos/plantilla.html", {
+            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
+            "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
+        })
+
+    def post(self, request):
+        perfil = request.user.perfil
+        juzgado = _juzgado_actual(request, perfil)
+        if juzgado is None:
+            messages.error(request, "No hay ningún juzgado configurado todavía.")
+            return redirect("procesos:panel")
+
+        form = PlantillaJuzgadoForm(request.POST, request.FILES, instance=juzgado)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Cambios guardados.")
+            return redirect(f"{reverse('procesos:plantilla')}?juzgado={juzgado.slug}")
+
+        return render(request, "procesos/plantilla.html", {
+            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
+            "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
+        })
+
+
+class VerImagenJuzgadoView(PuedeEditarPlantillaMixin, View):
+    """Vista previa de logo/sello/firma dentro de la propia app — en
+    producción MEDIA_URL no se sirve por HTTP (ver DESPLIEGUE.md), así
+    que /admin/ no puede mostrar una vista previa de estas imágenes;
+    esta vista sí, porque lee el archivo del disco con el mismo control
+    de acceso por Juzgado que el resto de la app (en vez de depender de
+    que la URL de MEDIA_URL sea o no adivinable)."""
+
+    CAMPOS = {"logo": "logo", "sello": "sello_judicial", "firma": "firma"}
+
+    def get(self, request, pk, campo):
+        perfil = request.user.perfil
+        juzgado = get_object_or_404(Juzgado, pk=pk)
+        if not perfil.tiene_acceso_a(juzgado):
+            raise PermissionDenied("No tienes acceso a este juzgado.")
+
+        nombre_campo = self.CAMPOS.get(campo)
+        if nombre_campo is None:
+            raise Http404("Imagen no reconocida.")
+        archivo = getattr(juzgado, nombre_campo)
+        if not archivo:
+            raise Http404("Este juzgado todavía no tiene esa imagen cargada.")
+        return FileResponse(open(archivo.path, "rb"))

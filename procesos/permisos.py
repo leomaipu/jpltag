@@ -52,6 +52,12 @@ PuedeGenerarCartasMixin = _mixin_por_permiso(
     "Operador, Secretario(a) y Administrador pueden).",
 )
 
+PuedeEditarPlantillaMixin = _mixin_por_permiso(
+    "puede_editar_plantilla",
+    "Tu rol no tiene permiso para editar la plantilla ni los logos del "
+    "Juzgado (Jueza/Juez no tiene acceso a esta pantalla).",
+)
+
 # TODO(permisos-agenda): este mixin no se usa todavía — AgendaView (en
 # views.py) revisa perfil.puede_editar_agenda() a mano dentro de su
 # post(), en vez de heredar de PuedeEditarAgendaMixin. Hoy da lo mismo:

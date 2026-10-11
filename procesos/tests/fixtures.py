@@ -11,6 +11,7 @@ import io
 import pandas as pd
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from docx import Document
 
 from nucleo.models import Juzgado, PerfilUsuario, Rol
 
@@ -73,3 +74,42 @@ def ingresar(client, username, password=CONTRASENA_PRUEBA):
     exige que la autenticación pase por una request real (AxesBackend
     necesita el `request` que authenticate() no recibe desde login())."""
     return client.post("/ingresar/", {"username": username, "password": password}, follow=True)
+
+
+def _docx_bytes(doc):
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def construir_plantilla_valida(texto_distintivo="PLANTILLA DE PRUEBA", nombre_archivo="plantilla.docx"):
+    """Una plantilla .docx mínima pero válida: usa algunos marcadores
+    simples ({{ patente }}, etc.) y un texto fácil de reconocer en las
+    pruebas, para probar que una plantilla PROPIA de un Juzgado (no la
+    plantilla por defecto) efectivamente se usa al generar cartas. No
+    incluye la tabla de causas — docxtpl no exige usar todos los
+    marcadores disponibles, los que no se referencian simplemente no
+    aparecen en el resultado."""
+    doc = Document()
+    doc.add_paragraph(texto_distintivo)
+    doc.add_paragraph("{{ nombre_infractor }} — {{ patente }} — Carta N° {{ numero_carta }}")
+    doc.add_paragraph("{{ texto_citacion }}")
+    return SimpleUploadedFile(
+        nombre_archivo, _docx_bytes(doc),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+def construir_plantilla_rota(nombre_archivo="plantilla_rota.docx"):
+    """Un .docx con un marcador de fila mal escrito a propósito: abre
+    "{%tr for causa in causas %}" pero nunca lo cierra con
+    "{%tr endfor %}" — el mismo tipo de error que validar_plantilla()
+    (motor/plantilla.py) existe para atrapar antes de guardar."""
+    doc = Document()
+    tabla = doc.add_table(rows=1, cols=1)
+    tabla.rows[0].cells[0].text = "{%tr for causa in causas %}{{ causa.nro_parte }}"
+    return SimpleUploadedFile(
+        nombre_archivo, _docx_bytes(doc),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )

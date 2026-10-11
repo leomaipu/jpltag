@@ -13,4 +13,6 @@ urlpatterns = [
     path("resultado/<int:pk>/", views.ResultadoView.as_view(), name="resultado"),
     path("descargar/<int:pk>/", views.DescargarArchivoView.as_view(), name="descargar"),
     path("agenda/", views.AgendaView.as_view(), name="agenda"),
+    path("plantilla/", views.PlantillaView.as_view(), name="plantilla"),
+    path("plantilla/imagen/<int:pk>/<str:campo>/", views.VerImagenJuzgadoView.as_view(), name="ver_imagen_juzgado"),
 ]

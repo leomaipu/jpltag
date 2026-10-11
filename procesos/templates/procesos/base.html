@@ -44,6 +44,7 @@
     <span>{{ user.get_full_name|default:user.username }}{% if user.perfil %} · {{ user.perfil.get_rol_display }}{% endif %}</span>
     <a href="{% url 'procesos:panel' %}">Panel</a>
     <a href="{% url 'procesos:agenda' %}">Agenda</a>
+    {% if user.perfil.puede_editar_plantilla %}<a href="{% url 'procesos:plantilla' %}">Plantilla y logos</a>{% endif %}
     {% if user.perfil.puede_gestionar_usuarios %}<a href="/admin/">Administración</a>{% endif %}
     <form action="{% url 'procesos:salir' %}" method="post" style="display:inline">
       {% csrf_token %}

@@ -199,19 +199,18 @@ ejecutar el script — lo recoge solo.
   contenedor, servicio o backend de HAProxy, y se puede fijar a mano con
   `JPLTAG_PUERTO=86xx`).
 - Tres carpetas persistentes **fuera** de la imagen, en el host:
-  `/maipu/data/files/jpltag/media` (logos/sello/firma de cada Juzgado),
+  `/maipu/data/files/jpltag/media` (logo/sello/firma y la plantilla Word
+  de cada Juzgado — Módulos 1 y 2, ver README.md),
   `/maipu/data/files/jpltag/salidas` (cartas, Excel de seguimiento y logs
   de cada corrida — con RUT, domicilio y nombre del infractor) y
   `/maipu/data/files/jpltag/tmp` (archivos subidos grandes mientras se
   procesan). Ninguna se sirve por HTTP, ni siquiera a las IPs
   autorizadas: la app solo entrega `salidas/` por su propia vista
-  protegida de descarga, o lee `media/` directamente del disco para
-  armar los `.docx` (ver `procesos/views.py` y `motor/cartas.py`). El
-  panel de `/admin/` para editar el logo/sello/firma de un Juzgado queda
-  sin la vista previa de la imagen (el enlace a `MEDIA_URL` no
-  responde): es una limitación conocida de la Fase 1, no un error — la
-  forma de confirmar que un logo/sello/firma quedó bien es generar una
-  carta de prueba y abrir el `.docx`.
+  protegida de descarga, y lee `media/` directamente del disco para
+  armar los `.docx` (ver `procesos/views.py` y `motor/plantilla.py`) y
+  para la vista previa de logo/sello/firma en `/plantilla/` — esa
+  vista previa propia (no depende de `MEDIA_URL`, que no se sirve por
+  HTTP) reemplazó la limitación que tenía `/admin/` en la Fase 1.
 - Todo el sitio restringido a las IPs de `/etc/haproxy/ips-admin.lst`
   por defecto (`JPLTAG_SOLO_IPS=si`), más una sala de espera y el
   rechazo de subidas sobre 50 MB en HAProxy (excepción solo para

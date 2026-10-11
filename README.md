@@ -24,15 +24,48 @@ motor/      paquete Python plano (NO es una app Django) con la lógica de
             y mapeo flexible de columnas del Excel, detección de N° de
             parte duplicado, agrupación de infracciones por patente,
             cálculo de multa por tipo de causa, asignación de agenda, y
-            la generación de la carta de citación oficial en .docx
+            la generación de la carta de citación oficial en .docx a
+            partir de la plantilla Word de cada Juzgado (motor/plantilla.py)
 procesos/   la app web: login, panel, subir nómina → generar cartas,
-            ver/descargar resultado, agenda de audiencias
+            ver/descargar resultado, agenda, plantilla y logos del Juzgado
+scripts/    scripts que se corren a mano (no en producción) — hoy solo
+            el que genera la plantilla Word por defecto, ver abajo
 ```
 
 `motor/` es deliberadamente independiente de Django: es el mismo motor
 que corrían los scripts, solo que parametrizado por juzgado (`config`,
 un dict) en vez de constantes fijas por archivo. Se puede probar y usar
 sin levantar la aplicación web.
+
+### Plantilla Word editable por Juzgado (Módulo 1) y logos propios (Módulo 2)
+
+Cada Juzgado puede subir su propia plantilla de carta (`/plantilla/` en
+la app, o el campo `plantilla_word` de `Juzgado` desde `/admin/`): un
+.docx con marcadores estilo Jinja2 (`{{ nombre_infractor }}`, una tabla
+que se repite por causa, etc.) que define el diseño completo — logo,
+colores, orden de los bloques. La lista completa de marcadores
+disponibles está documentada en `motor/plantilla.py`. El texto legal de
+la citación (Art. 3° Ley 18.287) no es editable desde la plantilla: lo
+arma `motor/plantilla.construir_contexto()` para no poder introducir sin
+querer un error de redacción legal con solo editar un Word.
+
+Si un Juzgado no sube su propia plantilla, se usa la que trae el repo
+por defecto (`motor/plantillas_defecto/citacion_tag.docx`), generada con
+`scripts/construir_plantilla_defecto.py` — para regenerarla tras cambiar
+su diseño:
+
+```bash
+python scripts/construir_plantilla_defecto.py
+```
+
+Antes de guardar una plantilla nueva, la app la prueba con datos
+ficticios (`motor.plantilla.validar_plantilla`) para atrapar un marcador
+mal escrito (ej. un `{%tr for %}` sin su `{%tr endfor %}`) antes de que
+rompa una generación de cartas real. Logo, sello judicial y firma se
+suben desde la misma pantalla — se validan como imagen real (Pillow, ver
+`requirements.in`) y tienen una vista previa que no depende de que
+`MEDIA_URL` se sirva por HTTP (en producción no se sirve, ver
+DESPLIEGUE.md).
 
 ## Roles y permisos
 
@@ -95,11 +128,13 @@ python -m unittest discover -s motor/tests -t .
 
 `procesos/tests/` prueba la app web sobre ese motor — login (incluido el
 bloqueo de django-axes tras 5 intentos), los permisos de cada rol,
-el flujo completo subir → generar → ver resultado → descargar, y lo más
-importante: que un usuario de un Juzgado nunca pueda ver ni descargar
-los resultados de otro (ahí está el RUT, el domicilio y el nombre del
-infractor). Correr ambas suites (motor + procesos) antes de cada
-despliegue:
+el flujo completo subir → generar → ver resultado → descargar, que una
+plantilla propia de un Juzgado se use de verdad al generar sus cartas (y
+que una con un marcador mal cerrado se rechace antes de guardarse), y lo
+más importante: que un usuario de un Juzgado nunca pueda ver ni
+descargar los resultados de otro (ahí está el RUT, el domicilio y el
+nombre del infractor). Correr ambas suites (motor + procesos) antes de
+cada despliegue:
 
 ```bash
 python manage.py check

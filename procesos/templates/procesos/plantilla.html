@@ -1,0 +1,89 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Plantilla y logos{% endblock %}
+{% block contenido %}
+<h1>Plantilla y logos{% if juzgado %} — {{ juzgado.nombre }}{% endif %}</h1>
+
+{% if juzgados|length > 1 %}
+<form method="get" class="tarjeta">
+  <label for="juzgado">Juzgado</label>
+  <select name="juzgado" id="juzgado" onchange="this.form.submit()">
+    {% for j in juzgados %}
+    <option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+<div class="tarjeta">
+  <h2>Imágenes actuales</h2>
+  <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+    <div>
+      <p class="ayuda">Logo institucional</p>
+      {% if juzgado.logo %}
+      <img src="{% url 'procesos:ver_imagen_juzgado' pk=juzgado.pk campo='logo' %}" alt="Logo" style="max-height:80px; max-width:160px; border:1px solid #ddd; border-radius:4px;">
+      {% else %}
+      <p class="ayuda">Sin cargar todavía.</p>
+      {% endif %}
+    </div>
+    <div>
+      <p class="ayuda">Sello judicial</p>
+      {% if juzgado.sello_judicial %}
+      <img src="{% url 'procesos:ver_imagen_juzgado' pk=juzgado.pk campo='sello' %}" alt="Sello judicial" style="max-height:80px; max-width:160px; border:1px solid #ddd; border-radius:4px;">
+      {% else %}
+      <p class="ayuda">Sin cargar todavía.</p>
+      {% endif %}
+    </div>
+    <div>
+      <p class="ayuda">Firma</p>
+      {% if juzgado.firma %}
+      <img src="{% url 'procesos:ver_imagen_juzgado' pk=juzgado.pk campo='firma' %}" alt="Firma" style="max-height:80px; max-width:160px; border:1px solid #ddd; border-radius:4px;">
+      {% else %}
+      <p class="ayuda">Sin cargar — la carta usa una línea punteada en su lugar.</p>
+      {% endif %}
+    </div>
+  </div>
+  <p class="ayuda" style="margin-top:.75rem;">
+    Plantilla de la carta:
+    {% if plantilla_nombre %}
+    la propia de este Juzgado ({{ plantilla_nombre }}).
+    {% else %}
+    ninguna cargada — se usa la plantilla por defecto.
+    {% endif %}
+  </p>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="tarjeta">
+  {% csrf_token %}
+  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+  {% for campo in form %}
+  <p>
+    <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+    {{ campo }}
+    {% if campo.help_text %}<span class="ayuda">{{ campo.help_text }}</span>{% endif %}
+    {{ campo.errors }}
+  </p>
+  {% endfor %}
+  <button type="submit" class="boton">Guardar cambios</button>
+</form>
+
+<div class="tarjeta">
+  <h2>Sobre la plantilla Word</h2>
+  <p class="ayuda">
+    La plantilla define el diseño completo de la carta: logo, colores,
+    orden de los bloques y cualquier texto propio del Juzgado — se edita
+    directamente en Word. El texto legal de la citación (Art. 3° Ley
+    18.287) y la tabla de causas los sigue completando la aplicación;
+    la plantilla solo dice <em>dónde</em> van ubicados esos marcadores
+    (uno de texto, como "{% templatetag openvariable %} texto_citacion {% templatetag closevariable %}",
+    y uno de tabla, como "{% templatetag openblock %}tr for causa in causas{% templatetag closeblock %}",
+    etc. — no los reescribe).
+  </p>
+  <p class="ayuda">
+    Antes de guardar una plantilla nueva, la aplicación genera una carta
+    de prueba con datos ficticios para detectar un marcador mal escrito
+    (por ejemplo, un "{% templatetag openblock %}tr for{% templatetag closeblock %}"
+    sin su "{% templatetag openblock %}tr endfor{% templatetag closeblock %}") —
+    si falla, no se guarda y se explica qué revisar.
+  </p>
+</div>
+{% endblock %}

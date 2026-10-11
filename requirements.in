@@ -44,3 +44,15 @@ Pillow==12.3.0
 # que nunca es el caso ahí). No se detectaba en manage.py test porque,
 # sin VALKEY_URL, las pruebas usan la caché en memoria.
 redis==8.1.0
+# Módulo 1 (plantilla Word editable por Juzgado, ver motor/plantilla.py):
+# docxtpl rellena marcadores {{ }} en un .docx usando Jinja2 — así el
+# Juzgado diseña su propia carta en Word en vez de que el layout esté
+# escrito a mano en motor/cartas.py. Licencia LGPL-2.1 (se usa como
+# librería, sin modificar ni redistribuir su código fuente — no aplica
+# el copyleft a este repo).
+docxtpl==0.20.2
+# Cada carta (una patente) se renderiza por separado con docxtpl y
+# docxcompose las une en 1 solo .docx (un lote), con un salto de página
+# entre cada una — equivalente a lo que antes hacía doc.add_page_break()
+# a mano. Licencia MIT.
+docxcompose==2.2.0

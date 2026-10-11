@@ -33,18 +33,23 @@ class Juzgado(models.Model):
 
     max_causas_por_pagina = models.PositiveSmallIntegerField(default=20)
 
-    # Módulo 2 (selector de imágenes): por ahora se administran desde /admin/,
-    # la pantalla propia de carga queda para la Fase 3.
+    # Módulo 2 (selector de imágenes): el operador/secretario las sube
+    # desde su propia pantalla en la app (ver procesos.views.PlantillaView
+    # y PuedeEditarPlantillaMixin) — /admin/ sigue funcionando como
+    # alternativa, pero ya no es el único camino.
     logo = models.ImageField(upload_to="juzgados/logos/", blank=True, null=True)
     sello_judicial = models.ImageField(upload_to="juzgados/sellos/", blank=True, null=True)
     firma = models.ImageField(upload_to="juzgados/firmas/", blank=True, null=True)
 
-    # Módulo 1 (plantilla Word editable por el juzgado): se agrega en la
-    # Fase 3. Por ahora la redacción de la carta vive en motor/cartas.py,
-    # igual que en los 6 scripts actuales.
+    # Módulo 1 (plantilla Word editable por el juzgado): el diseño de la
+    # carta (logo, colores, orden de los bloques) lo define este .docx
+    # con marcadores docxtpl, no motor/cartas.py — ver motor/plantilla.py
+    # para la lista completa de marcadores disponibles. Si queda vacío,
+    # motor.plantilla.generar_cartas_certificadas usa la plantilla por
+    # defecto (motor/plantillas_defecto/citacion_tag.docx).
     plantilla_word = models.FileField(
         upload_to="juzgados/plantillas/", blank=True, null=True,
-        help_text="Reservado para la Fase 3 (plantilla Word editable). Sin uso todavía.",
+        help_text="Plantilla Word (.docx) con marcadores — vacío usa la plantilla por defecto.",
     )
 
     activo = models.BooleanField(default=True)

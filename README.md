@@ -24,12 +24,11 @@ motor/      paquete Python plano (NO es una app Django) con la lógica de
             y mapeo flexible de columnas del Excel, detección de N° de
             parte duplicado, agrupación de infracciones por patente,
             cálculo de multa por tipo de causa, asignación de agenda, y
-            la generación de la carta de citación oficial en .docx a
-            partir de la plantilla Word de cada Juzgado (motor/plantilla.py)
+            la generación de las cartas oficiales en .docx a partir de
+            la plantilla Word de cada Juzgado y tipo de carta
+            (motor/plantilla.py, motor/plantillas_defecto/)
 procesos/   la app web: login, panel, subir nómina → generar cartas,
             ver/descargar resultado, agenda, plantilla y logos del Juzgado
-scripts/    scripts que se corren a mano (no en producción) — hoy solo
-            el que genera la plantilla Word por defecto, ver abajo
 ```
 
 `motor/` es deliberadamente independiente de Django: es el mismo motor
@@ -37,35 +36,64 @@ que corrían los scripts, solo que parametrizado por juzgado (`config`,
 un dict) en vez de constantes fijas por archivo. Se puede probar y usar
 sin levantar la aplicación web.
 
-### Plantilla Word editable por Juzgado (Módulo 1) y logos propios (Módulo 2)
+### Tres tipos de carta, una plantilla Word por Juzgado y tipo (Módulos 1 y 2)
 
-Cada Juzgado puede subir su propia plantilla de carta (`/plantilla/` en
-la app, o el campo `plantilla_word` de `Juzgado` desde `/admin/`): un
-.docx con marcadores estilo Jinja2 (`{{ nombre_infractor }}`, una tabla
-que se repite por causa, etc.) que define el diseño completo — logo,
-colores, orden de los bloques. La lista completa de marcadores
-disponibles está documentada en `motor/plantilla.py`. El texto legal de
-la citación (Art. 3° Ley 18.287) no es editable desde la plantilla: lo
-arma `motor/plantilla.construir_contexto()` para no poder introducir sin
-querer un error de redacción legal con solo editar un Word.
+Cada Juzgado emite tres tipos de carta, que se elige al subir la nómina:
 
-Si un Juzgado no sube su propia plantilla, se usa la que trae el repo
-por defecto (`motor/plantillas_defecto/citacion_tag.docx`), generada con
-`scripts/construir_plantilla_defecto.py` — para regenerarla tras cambiar
-su diseño:
+| Tipo | Qué dice | Agenda |
+|---|---|---|
+| Citación | Cita a prestar declaración en una fecha y hora (Art. 3° Ley 18.287) | Sí: asigna un bloque de `/agenda/` |
+| Citación y sentencia | Lo anterior + "si no concurre, será CONDENADO(A) al pago de N UTM por infracción" | Sí |
+| Sentencia | Notifica la sentencia ya dictada (Art. 18° Ley 18.287); se indica la fecha de la sentencia al generar | No usa agenda ni gasta cupos |
 
-```bash
-python scripts/construir_plantilla_defecto.py
-```
+**El texto legal vive en el Word, no en el código.** Las 9 plantillas
+(3 Juzgados × 3 tipos) están en `motor/plantillas_defecto/jpl1/`,
+`jpl2/`, `jpl3/` (`citacion.docx`, `citacion_sentencia.docx`,
+`sentencia.docx`), adaptadas de los ejemplos que entregó cada Juzgado:
+conservan su diseño y su redacción (por ejemplo, la citación del 2do
+JPL no dice "a prestar declaración indagatoria"; el 1ro y el 3ro sí).
+Se usan según el número del Juzgado (`jpl1`/`jpl2`/`jpl3` en el slug, o
+"PRIMER/SEGUNDO/TERCER" en el nombre): **el slug de cada Juzgado debe
+ser `jpl1`, `jpl2` o `jpl3`**. Si no se puede deducir el número y el
+Juzgado no subió plantilla propia, la generación **falla con un mensaje
+claro** en vez de usar el texto legal de otro Juzgado.
 
-Antes de guardar una plantilla nueva, la app la prueba con datos
-ficticios (`motor.plantilla.validar_plantilla`) para atrapar un marcador
-mal escrito (ej. un `{%tr for %}` sin su `{%tr endfor %}`) antes de que
-rompa una generación de cartas real. Logo, sello judicial y firma se
-suben desde la misma pantalla — se validan como imagen real (Pillow, ver
-`requirements.in`) y tienen una vista previa que no depende de que
-`MEDIA_URL` se sirva por HTTP (en producción no se sirve, ver
-DESPLIEGUE.md).
+Cada Juzgado puede cambiar su texto desde `/plantilla/`: descarga la que
+se usa hoy ("Descargar la que se usa hoy"), la edita en Word conservando
+los marcadores (`{{ nombre_infractor }}`, `{{ patente }}`, una tabla con
+`{%tr for causa in causas %}` … `{%tr endfor %}`, etc.; la lista completa
+está en el docstring de `motor/plantilla.py`) y la vuelve a subir (o
+desde el campo correspondiente de `Juzgado` en `/admin/`). Antes de
+guardarla, la app genera una carta de prueba con datos ficticios y
+comprueba que traiga nombre, RUT, patente, tabla de infracciones y la
+fecha de la audiencia/sentencia, para atrapar un marcador mal escrito o
+un Word sin los datos antes de que arruine una impresión real
+(`motor.plantilla.validar_plantilla`).
+
+Logo, sello judicial y firma se suben desde la misma pantalla — se
+validan como imagen real (Pillow, ver `requirements.in`) y tienen una
+vista previa que no depende de que `MEDIA_URL` se sirva por HTTP (en
+producción no se sirve, ver DESPLIEGUE.md). Sin logo propio se usa el
+logo municipal que trae el repo (`motor/plantillas_defecto/logo_maipu.png`).
+La firma y el sello **no** están en el repo (son de una persona
+concreta): para el 2do JPL, la secretaria abogada sube su firma y el
+secretario su timbre en `/plantilla/`; mientras no estén cargados, la
+carta sale con una línea punteada para firmar a mano. Cargos de quien
+firma disponibles: Secretario, Secretaria, Secretario abogado, Secretaria
+abogada.
+
+Cuántas infracciones caben en una hoja (`Juzgado.max_causas_por_pagina`,
+12 por defecto): se midió con las plantillas por defecto y la nómina real
+de octubre-2026 — caben 14 con firma + sello (la más alta) y 16 ya
+desborda; si una patente tiene más, la carta sale en varias partes
+completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
+firma. Con una plantilla propia más alta o más compacta, ajustar desde
+`/admin/`.
+
+**Rol:** la nómina que entrega la DAF no trae el Rol/folio de causa (solo
+el N° de parte), así que la columna Rol imprime `PENDIENTE` hasta que esa
+columna venga en la nómina (`motor/cartas.formatear_rol`). Igual con
+`Reg N°` («folio carta trámite»).
 
 ### UTM automático (Módulo 4)
 

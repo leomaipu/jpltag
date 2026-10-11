@@ -219,8 +219,8 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   contenedor, servicio o backend de HAProxy, y se puede fijar a mano con
   `JPLTAG_PUERTO=86xx`).
 - Tres carpetas persistentes **fuera** de la imagen, en el host:
-  `/maipu/data/files/jpltag/media` (logo/sello/firma y la plantilla Word
-  de cada Juzgado — Módulos 1 y 2, ver README.md),
+  `/maipu/data/files/jpltag/media` (logo/sello/firma y las plantillas Word
+  propias de cada Juzgado — Módulos 1 y 2, ver README.md),
   `/maipu/data/files/jpltag/salidas` (cartas, Excel de seguimiento y logs
   de cada corrida — con RUT, domicilio y nombre del infractor) y
   `/maipu/data/files/jpltag/tmp` (archivos subidos grandes mientras se
@@ -256,10 +256,25 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
    para la cuenta recién creada, un `PerfilUsuario` con rol
    Administrador. Sin este paso la cuenta no puede entrar a `/` — el
    superusuario de Django por sí solo no basta, la app exige el perfil.
+   **El slug de cada Juzgado debe ser `jpl1`, `jpl2` o `jpl3`**: con eso
+   la app elige las plantillas de carta de cada uno (ver README.md); con
+   otro slug cuyo nombre no diga "Primer/Segundo/Tercer", no hay plantilla
+   por defecto y la generación falla pidiendo subir una.
 4. Crear un `PerfilUsuario` por cada funcionario real, con su rol y su
    Juzgado.
-5. Confirmar el flujo completo: subir una nómina de prueba → generar →
-   descargar, y que el `.docx` tenga el contenido esperado.
+5. Para el 2do Juzgado: en `/plantilla/` subir la **firma** de la
+   secretaria abogada y el **timbre (sello)** del secretario — no vienen
+   en el repo. Sin ellos, las cartas salen con una línea punteada.
+6. Confirmar el flujo completo, con cada uno de los 3 tipos de carta:
+   subir una nómina de prueba → generar → descargar, y que el `.docx`
+   tenga el contenido esperado. (La sentencia pide la fecha de la
+   sentencia y no usa la agenda.)
+
+Al actualizar desde la versión anterior, `migrate` hace dos cosas con los
+datos existentes: la plantilla Word que un Juzgado ya hubiera subido pasa
+a ser su plantilla de **citación**, y `max_causas_por_pagina` que siga en
+20 (el valor del diseño anterior) baja a 12 — con las plantillas oficiales
+no caben más por hoja; cualquier otro valor no se toca.
 
 ## 4. Backups
 

@@ -83,18 +83,27 @@ def _docx_bytes(doc):
     return buffer.read()
 
 
-def construir_plantilla_valida(texto_distintivo="PLANTILLA DE PRUEBA", nombre_archivo="plantilla.docx"):
-    """Una plantilla .docx mínima pero válida: usa algunos marcadores
-    simples ({{ patente }}, etc.) y un texto fácil de reconocer en las
-    pruebas, para probar que una plantilla PROPIA de un Juzgado (no la
-    plantilla por defecto) efectivamente se usa al generar cartas. No
-    incluye la tabla de causas — docxtpl no exige usar todos los
-    marcadores disponibles, los que no se referencian simplemente no
-    aparecen en el resultado."""
+def construir_plantilla_valida(texto_distintivo="PLANTILLA DE PRUEBA", nombre_archivo="plantilla.docx",
+                                tipo="CITACION"):
+    """Una plantilla .docx mínima pero válida para `tipo`: trae los datos
+    esenciales que validar_plantilla() exige (nombre, RUT, patente, la
+    tabla de causas con su fila repetida y, según el tipo, la cláusula de
+    audiencia / fecha de sentencia / monto de la condena) más un texto
+    fácil de reconocer en las pruebas, para probar que una plantilla
+    PROPIA de un Juzgado (no la por defecto) efectivamente se usa."""
     doc = Document()
     doc.add_paragraph(texto_distintivo)
-    doc.add_paragraph("{{ nombre_infractor }} — {{ patente }} — Carta N° {{ numero_carta }}")
-    doc.add_paragraph("{{ texto_citacion }}")
+    doc.add_paragraph(
+        "{{ nombre_infractor }} — RUT {{ rut_infractor }} — {{ patente }} — Carta N° {{ numero_carta }}"
+    )
+    if tipo in ("CITACION", "CITACION_SENTENCIA"):
+        doc.add_paragraph("Se cita {{ clausula_audiencia }}")
+    if tipo in ("CITACION_SENTENCIA", "SENTENCIA"):
+        doc.add_paragraph("Sentencia del {{ fecha_audiencia }}: condena de {{ condena_monto }}")
+    tabla = doc.add_table(rows=3, cols=1)
+    tabla.rows[0].cells[0].text = "{%tr for causa in causas %}"
+    tabla.rows[1].cells[0].text = "{{ causa.rol }} {{ causa.lugar }}"
+    tabla.rows[2].cells[0].text = "{%tr endfor %}"
     return SimpleUploadedFile(
         nombre_archivo, _docx_bytes(doc),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

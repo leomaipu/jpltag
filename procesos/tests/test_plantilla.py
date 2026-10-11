@@ -86,14 +86,14 @@ class SubirPlantillaYLogosTest(TestCase):
             "logo": _imagen_prueba("logo.png"),
             "sello_judicial": _imagen_prueba("sello.png"),
             "firma": _imagen_prueba("firma.png"),
-            "plantilla_word": construir_plantilla_valida(),
+            "plantilla_citacion": construir_plantilla_valida(),
         }, follow=True)
         self.assertEqual(resp.status_code, 200)
         self.juzgado.refresh_from_db()
         self.assertTrue(self.juzgado.logo)
         self.assertTrue(self.juzgado.sello_judicial)
         self.assertTrue(self.juzgado.firma)
-        self.assertTrue(self.juzgado.plantilla_word)
+        self.assertTrue(self.juzgado.plantilla_citacion)
 
     def test_plantilla_con_marcador_mal_cerrado_no_se_guarda(self):
         """El corazón de esta prueba: validar_plantilla() (motor/plantilla.py)
@@ -102,11 +102,11 @@ class SubirPlantillaYLogosTest(TestCase):
         alguien subiera una nómina real, con todas las cartas rotas."""
         resp = self.client.post("/plantilla/", {
             "juzgado": self.juzgado.slug,
-            "plantilla_word": construir_plantilla_rota(),
+            "plantilla_citacion": construir_plantilla_rota(),
         })
         self.assertEqual(resp.status_code, 200)  # vuelve a mostrar el formulario, no redirige
         self.juzgado.refresh_from_db()
-        self.assertFalse(self.juzgado.plantilla_word)
+        self.assertFalse(self.juzgado.plantilla_citacion)
         self.assertContains(resp, "No se pudo generar")
 
     def test_vista_previa_de_imagen_respeta_el_juzgado(self):
@@ -148,7 +148,7 @@ class PlantillaPropiaSeUsaAlGenerarTest(TestCase):
         ingresar(self.client, "operador")
         self.client.post("/plantilla/", {
             "juzgado": self.juzgado.slug,
-            "plantilla_word": construir_plantilla_valida("MARCA DISTINTIVA DEL JUZGADO XYZ"),
+            "plantilla_citacion": construir_plantilla_valida("MARCA DISTINTIVA DEL JUZGADO XYZ"),
         })
         self.juzgado.refresh_from_db()
 
@@ -160,6 +160,7 @@ class PlantillaPropiaSeUsaAlGenerarTest(TestCase):
         nomina = construir_nomina_xlsx([fila_nomina(pat="AAAA11", fecha="03/09/2026")])
         resp = self.client.post("/subir/", {
             "nomina": nomina,
+            "tipo_carta": "CITACION",
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA",
             "n_cartas_paquete": 0,

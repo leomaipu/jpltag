@@ -43,6 +43,7 @@ class FlujoCompletoTest(TestCase):
         ])
         return self.client.post("/subir/", {
             "nomina": nomina,
+            "tipo_carta": "CITACION",
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA",
             "n_cartas_paquete": 0,

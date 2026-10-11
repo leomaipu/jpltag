@@ -50,7 +50,8 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 "rut": f"{rut}-{dv}" if rut and dv else rut or "—",
                 "domicilio": get_col(row, "DOMICILIO") or "—",
                 "comuna": get_col(row, "COMUNA") or "—",
-                "vehiculo": f"{get_col(row, 'MARCA')} {get_col(row, 'MODELO')}".strip() or "—",
+                # "MARCA, MODELO" — así lo escriben las cartas oficiales de los Juzgados.
+                "vehiculo": ", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")])) or "—",
                 "causas": [],
             }
 

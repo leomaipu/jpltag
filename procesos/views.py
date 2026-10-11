@@ -27,13 +27,13 @@ from django.views import View
 from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
 from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
 from motor.cartas import fmt_pesos
-from motor.fechas_en_letras import MESES, fecha_en_letras
+from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
-from motor.plantilla import generar_cartas_certificadas
+from motor.plantilla import generar_cartas_certificadas, ruta_plantilla_defecto
 from motor.reportes import escribir_log_errores, exportar_duplicados
 from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
-from nucleo.models import BloqueHorario, Juzgado
+from nucleo.models import BloqueHorario, Juzgado, TipoCarta
 
 from .forms import BloqueHorarioForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
@@ -129,6 +129,8 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
             usuario=request.user,
             archivo_nomina=datos["nomina"],
             archivo_tipo_causas=datos.get("tipo_causas"),
+            tipo_carta=datos["tipo_carta"],
+            fecha_sentencia=datos.get("fecha_audiencia"),
             nombre_firmante=datos.get("nombre_firmante") or "",
             cargo_firma=datos.get("cargo_firma") or "SECRETARIO",
             n_cartas_paquete=datos.get("n_cartas_paquete") or 0,
@@ -147,7 +149,7 @@ def _registrar_fallo(juzgado, usuario, nombre_archivo, carpeta_rel, mensaje):
 
 
 def _pool_de_agenda(juzgado):
-    """Arma la lista de slots disponibles (fecha_en_letras, hora) a partir
+    """Arma la lista de slots disponibles (fecha dd/mm/aaaa, hora) a partir
     de los BloqueHorario futuros de `juzgado`, repitiendo cada slot tantas
     veces como cupos_disponibles tenga su bloque (un bloque es una
     audiencia grupal: varias patentes pueden compartir la misma fecha y
@@ -159,7 +161,7 @@ def _pool_de_agenda(juzgado):
     bloque_por_slot = {}
     pool = []
     for b in bloques:
-        slot = (fecha_en_letras(b.fecha), b.hora.strftime("%H:%M"))
+        slot = (b.fecha.strftime("%d/%m/%Y"), b.hora.strftime("%H:%M"))
         bloque_por_slot[slot] = b
         pool.extend([slot] * b.cupos_disponibles)
     return pool, bloque_por_slot
@@ -179,7 +181,8 @@ def _descontar_cupos_usados(slots, bloque_por_slot):
 
 
 def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
-                      nombre_firmante, cargo_firma, n_cartas_paquete):
+                      nombre_firmante, cargo_firma, n_cartas_paquete,
+                      tipo_carta=TipoCarta.CITACION, fecha_sentencia=None):
     import uuid
 
     carpeta_rel = f"{juzgado.slug}/{uuid.uuid4().hex}"
@@ -224,11 +227,19 @@ def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
                 f"({MESES[mes_pred - 1]} {anio_pred}) de esta nómina.",
             )
 
-        pool_agenda, bloque_por_slot = _pool_de_agenda(juzgado)
-        slots, sin_cupo = asignar_agenda(incluidos, pool_agenda)
-        _descontar_cupos_usados(slots, bloque_por_slot)
+        if tipo_carta == TipoCarta.SENTENCIA:
+            # La sentencia ya está dictada: no se cita a ninguna audiencia,
+            # así que no se asigna agenda ni se gastan cupos.
+            slots, sin_cupo = {}, []
+        else:
+            pool_agenda, bloque_por_slot = _pool_de_agenda(juzgado)
+            slots, sin_cupo = asignar_agenda(incluidos, pool_agenda)
+            _descontar_cupos_usados(slots, bloque_por_slot)
 
         config = {
+            "tipo_carta": str(tipo_carta),
+            "fecha_audiencia": fecha_sentencia.strftime("%d/%m/%Y") if fecha_sentencia else "",
+            "slug_juzgado": juzgado.slug,
             "nombre_juzgado": juzgado.nombre,
             "utm_valor": juzgado.utm_valor,
             "direccion_juzgado": juzgado.direccion,
@@ -238,7 +249,10 @@ def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
             "logo_path": juzgado.logo.path if juzgado.logo else None,
             "sello_path": juzgado.sello_judicial.path if juzgado.sello_judicial else None,
             "firma_path": juzgado.firma.path if juzgado.firma else None,
-            "plantilla_word_path": juzgado.plantilla_word.path if juzgado.plantilla_word else None,
+            "plantillas_word": {
+                tipo: juzgado.plantilla_propia(tipo).path
+                for tipo in TipoCarta.values if juzgado.plantilla_propia(tipo)
+            },
         }
 
         carpeta_cartas = carpeta_abs / "cartas"
@@ -268,6 +282,7 @@ def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
         generacion = GeneracionCartas.objects.create(
             juzgado=juzgado, usuario=usuario,
             nombre_archivo_nomina=archivo_nomina.name,
+            tipo_carta=tipo_carta, fecha_sentencia=fecha_sentencia,
             anio_periodo=anio_pred, mes_periodo=mes_pred,
             total_patentes=len(incluidos),
             total_duplicados=len(df_duplicados),
@@ -388,6 +403,27 @@ class AgendaView(PerfilRequeridoMixin, View):
 # Módulo 2 — logo/sello/firma propios, sin pasar por /admin/)
 # ══════════════════════════════════════════════════════════════════════
 
+def _contexto_plantilla(perfil, juzgado, form):
+    """Datos de la pantalla /plantilla/: por cada tipo de carta, el campo del
+    formulario y si el Juzgado usa su plantilla propia o la del repo."""
+    plantillas = []
+    for tipo in TipoCarta:
+        campo = Juzgado.CAMPO_PLANTILLA[tipo]
+        propia = juzgado.plantilla_propia(tipo)
+        plantillas.append({
+            "tipo": tipo.value,
+            "etiqueta": tipo.label,
+            "campo": form[campo],
+            "nombre_propia": Path(propia.name).name if propia else None,
+            "hay_defecto": ruta_plantilla_defecto(juzgado.slug, juzgado.nombre, tipo.value) is not None,
+        })
+    return {
+        "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
+        "plantillas": plantillas,
+        "utm_actual": fmt_pesos(juzgado.utm_valor),
+    }
+
+
 class PlantillaView(PuedeEditarPlantillaMixin, View):
     def get(self, request):
         perfil = request.user.perfil
@@ -396,11 +432,7 @@ class PlantillaView(PuedeEditarPlantillaMixin, View):
             messages.error(request, "No hay ningún juzgado configurado todavía.")
             return redirect("procesos:panel")
         form = PlantillaJuzgadoForm(instance=juzgado)
-        return render(request, "procesos/plantilla.html", {
-            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
-            "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
-            "utm_actual": fmt_pesos(juzgado.utm_valor),
-        })
+        return render(request, "procesos/plantilla.html", _contexto_plantilla(perfil, juzgado, form))
 
     def post(self, request):
         perfil = request.user.perfil
@@ -415,11 +447,29 @@ class PlantillaView(PuedeEditarPlantillaMixin, View):
             messages.success(request, "Cambios guardados.")
             return redirect(f"{reverse('procesos:plantilla')}?juzgado={juzgado.slug}")
 
-        return render(request, "procesos/plantilla.html", {
-            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
-            "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
-            "utm_actual": fmt_pesos(juzgado.utm_valor),
-        })
+        return render(request, "procesos/plantilla.html", _contexto_plantilla(perfil, juzgado, form))
+
+
+class DescargarPlantillaView(PuedeEditarPlantillaMixin, View):
+    """Baja la plantilla que se usa hoy para un tipo de carta: la propia del
+    Juzgado si la subió, o la del repo. Sirve de punto de partida para
+    editar el texto sin armarla de cero."""
+
+    def get(self, request, pk, tipo):
+        perfil = request.user.perfil
+        juzgado = get_object_or_404(Juzgado, pk=pk)
+        if not perfil.tiene_acceso_a(juzgado):
+            raise PermissionDenied("No tienes acceso a este juzgado.")
+        if tipo not in TipoCarta.values:
+            raise Http404("Tipo de carta no reconocido.")
+        propia = juzgado.plantilla_propia(tipo)
+        ruta = propia.path if propia else ruta_plantilla_defecto(juzgado.slug, juzgado.nombre, tipo)
+        if not ruta or not Path(ruta).exists():
+            raise Http404("Este juzgado todavía no tiene plantilla para ese tipo de carta.")
+        return FileResponse(
+            open(ruta, "rb"), as_attachment=True,
+            filename=f"plantilla_{tipo.lower()}_{juzgado.slug}.docx",
+        )
 
 
 class VerImagenJuzgadoView(PuedeEditarPlantillaMixin, View):

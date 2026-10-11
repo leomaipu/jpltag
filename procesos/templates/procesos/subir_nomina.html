@@ -30,10 +30,12 @@
 </form>
 
 <p class="ayuda">
-  Se generan las cartas de citación de las patentes de este juzgado
-  (infracciones de los días {{ juzgado.dia_desde }} a {{ juzgado.dia_hasta }}
-  del mes predominante de la nómina), agrupando TODAS las infracciones de
-  cada patente en una sola carta — así cada infractor recibe una sola
-  notificación al mes, aunque tenga varias multas.
+  Se generan las cartas de las patentes de este juzgado (infracciones de
+  los días {{ juzgado.dia_desde }} a {{ juzgado.dia_hasta }} del mes
+  predominante de la nómina), agrupando TODAS las infracciones de cada
+  patente en una sola carta — así cada infractor recibe una sola
+  notificación al mes, aunque tenga varias multas. Las cartas de citación
+  asignan fecha y hora de audiencia desde la agenda del juzgado; las de
+  sentencia no usan la agenda.
 </p>
 {% endblock %}

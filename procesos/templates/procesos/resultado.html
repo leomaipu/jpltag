@@ -16,6 +16,8 @@
     Nómina: {{ generacion.nombre_archivo_nomina }}
     {% if mes_nombre %} · Periodo: {{ mes_nombre }} {{ generacion.anio_periodo }}{% endif %}
   </p>
+  <p>Tipo de carta: <strong>{{ generacion.get_tipo_carta_display }}</strong>
+    {% if generacion.fecha_sentencia %} · Fecha de la sentencia: {{ generacion.fecha_sentencia|date:"d/m/Y" }}{% endif %}</p>
   <p>Patentes notificadas: <strong>{{ generacion.total_patentes }}</strong></p>
 
   {% if generacion.mensaje_error %}
@@ -25,7 +27,9 @@
   <ul>
     <li>Filas con N° de parte duplicado (excluidas): {{ generacion.total_duplicados }}</li>
     <li>Patentes sin ninguna causa válida (excluidas): {{ generacion.total_sin_causas_validas }}</li>
+    {% if generacion.tipo_carta != "SENTENCIA" %}
     <li>Patentes sin cupo de agenda disponible: {{ generacion.total_sin_cupo_agenda }}</li>
+    {% endif %}
     {% if generacion.avisos.disposiciones_sin_multa_definida %}
     <li>Disposiciones sin multa definida (se usó el valor por defecto): {{ generacion.avisos.disposiciones_sin_multa_definida|join:", " }}</li>
     {% endif %}

@@ -9,7 +9,7 @@ mensual por juzgado.
 from django.conf import settings
 from django.db import models
 
-from nucleo.models import Juzgado
+from nucleo.models import Juzgado, TipoCarta
 
 
 class GeneracionCartas(models.Model):
@@ -29,6 +29,11 @@ class GeneracionCartas(models.Model):
     creado = models.DateTimeField(auto_now_add=True)
 
     nombre_archivo_nomina = models.CharField(max_length=255)
+    tipo_carta = models.CharField(max_length=20, choices=TipoCarta.choices, default=TipoCarta.CITACION)
+    fecha_sentencia = models.DateField(
+        null=True, blank=True,
+        help_text="Solo en cartas de SENTENCIA: la fecha de la sentencia que se escribió en la carta.",
+    )
     anio_periodo = models.PositiveIntegerField(null=True, blank=True)
     mes_periodo = models.PositiveSmallIntegerField(null=True, blank=True)
 

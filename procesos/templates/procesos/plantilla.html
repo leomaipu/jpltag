@@ -42,27 +42,44 @@
       {% endif %}
     </div>
   </div>
-  <p class="ayuda" style="margin-top:.75rem;">
-    Plantilla de la carta:
-    {% if plantilla_nombre %}
-    la propia de este Juzgado ({{ plantilla_nombre }}).
-    {% else %}
-    ninguna cargada — se usa la plantilla por defecto.
-    {% endif %}
-  </p>
 </div>
 
 <form method="post" enctype="multipart/form-data" class="tarjeta">
   {% csrf_token %}
   <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
-  {% for campo in form %}
+  <h2>Imágenes</h2>
+  {% for campo in form.visible_fields %}
+  {% if campo.name == "logo" or campo.name == "sello_judicial" or campo.name == "firma" %}
   <p>
     <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
     {{ campo }}
     {% if campo.help_text %}<span class="ayuda">{{ campo.help_text }}</span>{% endif %}
     {{ campo.errors }}
   </p>
+  {% endif %}
   {% endfor %}
+
+  <h2>Plantillas de las cartas</h2>
+  <p class="ayuda">
+    Hay un Word por cada tipo de carta. Si no subes uno propio, se usa el
+    que trae la aplicación para este Juzgado.
+  </p>
+  {% for p in plantillas %}
+  <p>
+    <label for="{{ p.campo.id_for_label }}">{{ p.etiqueta }}</label>
+    <span class="ayuda">
+      {% if p.nombre_propia %}Propia del Juzgado ({{ p.nombre_propia }}).
+      {% elif p.hay_defecto %}Usando la plantilla por defecto.
+      {% else %}<strong>Sin plantilla: sube una para poder generar este tipo de carta.</strong>{% endif %}
+      {% if p.nombre_propia or p.hay_defecto %}
+      <a href="{% url 'procesos:descargar_plantilla' pk=juzgado.pk tipo=p.tipo %}">Descargar la que se usa hoy</a>
+      {% endif %}
+    </span>
+    {{ p.campo }}
+    {{ p.campo.errors }}
+  </p>
+  {% endfor %}
+  {{ form.non_field_errors }}
   <button type="submit" class="boton">Guardar cambios</button>
 </form>
 
@@ -82,23 +99,23 @@
 </div>
 
 <div class="tarjeta">
-  <h2>Sobre la plantilla Word</h2>
+  <h2>Sobre las plantillas Word</h2>
   <p class="ayuda">
-    La plantilla define el diseño completo de la carta: logo, colores,
-    orden de los bloques y cualquier texto propio del Juzgado — se edita
-    directamente en Word. El texto legal de la citación (Art. 3° Ley
-    18.287) y la tabla de causas los sigue completando la aplicación;
-    la plantilla solo dice <em>dónde</em> van ubicados esos marcadores
-    (uno de texto, como "{% templatetag openvariable %} texto_citacion {% templatetag closevariable %}",
-    y uno de tabla, como "{% templatetag openblock %}tr for causa in causas{% templatetag closeblock %}",
-    etc. — no los reescribe).
+    Cada plantilla define el diseño completo de la carta <em>y su texto
+    legal</em>: logo, orden de los bloques y la redacción, que se edita
+    directamente en Word. Los datos de cada infractor se escriben con
+    marcadores entre llaves (por ejemplo "{% templatetag openvariable %} nombre_infractor {% templatetag closevariable %}"
+    o "{% templatetag openvariable %} patente {% templatetag closevariable %}"), y la tabla de infracciones usa una fila
+    repetida ("{% templatetag openblock %}tr for causa in causas{% templatetag closeblock %}" … "{% templatetag openblock %}tr endfor{% templatetag closeblock %}").
+    Para no equivocarte, descarga la plantilla que se usa hoy, edítala
+    conservando los marcadores y vuelve a subirla.
   </p>
   <p class="ayuda">
     Antes de guardar una plantilla nueva, la aplicación genera una carta
-    de prueba con datos ficticios para detectar un marcador mal escrito
-    (por ejemplo, un "{% templatetag openblock %}tr for{% templatetag closeblock %}"
-    sin su "{% templatetag openblock %}tr endfor{% templatetag closeblock %}") —
-    si falla, no se guarda y se explica qué revisar.
+    de prueba con datos ficticios y comprueba que traiga el nombre, el RUT
+    y la patente del infractor, la tabla de infracciones y la fecha de la
+    audiencia o sentencia; si falla algo, no se guarda y se explica qué
+    revisar.
   </p>
 </div>
 {% endblock %}

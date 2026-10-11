@@ -2,6 +2,15 @@ from django.conf import settings
 from django.db import models
 
 
+class TipoCarta(models.TextChoices):
+    """Los tres tipos de carta que emite cada Juzgado (los mismos valores
+    que motor.plantilla.TIPOS_CARTA)."""
+
+    CITACION = "CITACION", "Citación"
+    CITACION_SENTENCIA = "CITACION_SENTENCIA", "Citación y sentencia"
+    SENTENCIA = "SENTENCIA", "Sentencia"
+
+
 class Juzgado(models.Model):
     """Un juzgado de policía local. Reemplaza las constantes que hoy están
     escritas a mano en cada uno de los 6 scripts (NOMBRE_JUZGADO, UTM_VALOR,
@@ -34,7 +43,16 @@ class Juzgado(models.Model):
                    "o con el botón \"Verificar valor UTM\" en /plantilla/.",
     )
 
-    max_causas_por_pagina = models.PositiveSmallIntegerField(default=20)
+    # Cuántas infracciones caben en UNA página de carta sin que la firma y el
+    # texto final salten a una segunda hoja. Medido con las plantillas por
+    # defecto y la nómina real de octubre-2026 (disposiciones/lugares de
+    # hasta 2 líneas, firma + sello del 2do JPL = la más alta): 14 caben,
+    # 16 no. Se deja 12 por holgura. Si un Juzgado sube una plantilla más
+    # compacta (o más alta), se ajusta desde /admin/.
+    max_causas_por_pagina = models.PositiveSmallIntegerField(
+        default=12,
+        help_text="Infracciones por página de carta; si una patente tiene más, la carta sale en varias partes.",
+    )
 
     # Módulo 2 (selector de imágenes): el operador/secretario las sube
     # desde su propia pantalla en la app (ver procesos.views.PlantillaView
@@ -44,15 +62,22 @@ class Juzgado(models.Model):
     sello_judicial = models.ImageField(upload_to="juzgados/sellos/", blank=True, null=True)
     firma = models.ImageField(upload_to="juzgados/firmas/", blank=True, null=True)
 
-    # Módulo 1 (plantilla Word editable por el juzgado): el diseño de la
-    # carta (logo, colores, orden de los bloques) lo define este .docx
-    # con marcadores docxtpl, no motor/cartas.py — ver motor/plantilla.py
-    # para la lista completa de marcadores disponibles. Si queda vacío,
-    # motor.plantilla.generar_cartas_certificadas usa la plantilla por
-    # defecto (motor/plantillas_defecto/citacion_tag.docx).
-    plantilla_word = models.FileField(
+    # Módulo 1 (plantilla Word editable por el juzgado): el diseño Y el texto
+    # legal de cada tipo de carta lo define un .docx con marcadores docxtpl,
+    # no el código — ver motor/plantilla.py para la lista de marcadores. Una
+    # plantilla por tipo de carta. Si un campo queda vacío, motor.plantilla
+    # usa la del repo para ese juzgado (motor/plantillas_defecto/jplN/).
+    plantilla_citacion = models.FileField(
         upload_to="juzgados/plantillas/", blank=True, null=True,
-        help_text="Plantilla Word (.docx) con marcadores — vacío usa la plantilla por defecto.",
+        help_text="Carta de CITACIÓN (.docx con marcadores) — vacío usa la plantilla por defecto.",
+    )
+    plantilla_citacion_sentencia = models.FileField(
+        upload_to="juzgados/plantillas/", blank=True, null=True,
+        help_text="Carta de CITACIÓN Y SENTENCIA (.docx con marcadores) — vacío usa la plantilla por defecto.",
+    )
+    plantilla_sentencia = models.FileField(
+        upload_to="juzgados/plantillas/", blank=True, null=True,
+        help_text="Carta de SENTENCIA (.docx con marcadores) — vacío usa la plantilla por defecto.",
     )
 
     activo = models.BooleanField(default=True)
@@ -64,6 +89,18 @@ class Juzgado(models.Model):
 
     def __str__(self):
         return self.nombre
+
+    CAMPO_PLANTILLA = {
+        TipoCarta.CITACION: "plantilla_citacion",
+        TipoCarta.CITACION_SENTENCIA: "plantilla_citacion_sentencia",
+        TipoCarta.SENTENCIA: "plantilla_sentencia",
+    }
+
+    def plantilla_propia(self, tipo):
+        """El archivo .docx que este juzgado subió para ese tipo de carta,
+        o None si usa la del repo."""
+        archivo = getattr(self, self.CAMPO_PLANTILLA[tipo])
+        return archivo if archivo else None
 
 
 class BloqueHorario(models.Model):

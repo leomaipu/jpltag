@@ -328,6 +328,11 @@ class DescargarArchivoView(PuedeGenerarCartasMixin, View):
 # Agenda de audiencias (Módulo 3 — Agenda con cupos)
 # ══════════════════════════════════════════════════════════════════════
 
+# TODO(permisos-agenda): post() revisa perfil.puede_editar_agenda() a mano
+# en vez de heredar de PuedeEditarAgendaMixin (procesos/permisos.py), que
+# existe pero no se usa en ninguna vista. Sin consecuencias hoy (los 4
+# roles pueden editar la agenda), pero si eso cambia conviene migrar esta
+# vista a ese mixin — ver la nota junto a PuedeEditarAgendaMixin.
 class AgendaView(PerfilRequeridoMixin, View):
     def get(self, request):
         perfil = request.user.perfil

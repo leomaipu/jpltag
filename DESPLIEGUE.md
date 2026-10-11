@@ -26,15 +26,26 @@ completo subir → generar → descargar, y que un usuario de un Juzgado no
 pueda ver ni descargar los resultados de otro. Si algo de esto falla, no
 generar el tarball — corregirlo primero.
 
+Desde la versión final de `13-app-jpltag.sh` (la que incorpora
+`JPLTAG_PRUEBAS`, ver sección 0, paso 5bis) el propio script vuelve a
+correr `python manage.py test --noinput` dentro de la imagen recién
+construida, antes de publicar nada — así que un tarball con pruebas
+rotas no llega a reemplazar la versión publicada aunque alguien se
+salte este paso manual. Correrlas aquí primero sigue siendo más rápido
+(no hay que esperar a construir la imagen para enterarse).
+
 ## 0. El script de despliegue no vive en este repositorio
 
 `13-app-jpltag.sh` es un script de infraestructura del servidor, igual
 que `09-app-soporte.sh` y `10-app-reservas.sh`: vive en `~/maiproject-scripts`,
 junto a `00-config.sh` y los scripts de las otras apps — no dentro del
-repositorio de cada app. Lo revisó y corrigió dos veces el equipo que
-administra el servidor (sintaxis, shellcheck, `haproxy -c`, idempotencia
-del bloque de HAProxy); falta probarlo contra una versión real de
-jpltag, lo demás ya quedó validado contra este código.
+repositorio de cada app. Lo revisó y corrigió el equipo que administra
+el servidor en tres rondas (sintaxis, shellcheck, `haproxy -c`,
+idempotencia del bloque de HAProxy, la excepción de 50 MB y, en la
+última ronda, la puerta de calidad `JPLTAG_PRUEBAS` del paso 5bis); esta
+es la versión confirmada como la que se va a desplegar en el servidor —
+falta correrla contra el servidor real, lo demás ya quedó validado
+contra este código.
 
 Qué hace, en orden:
 1. Verifica que PostgreSQL, PgBouncer y Valkey estén sanos, y que el
@@ -56,17 +67,32 @@ Qué hace, en orden:
    adelante se agrega `jpltag` a `CORREO_APPS` en `12-correo.sh`, el
    script incluye también ese archivo de SMTP — jpltag no envía correo
    todavía, así que por ahora no tiene efecto.
-5. Construye la imagen, confirma que no corre como root, y genera
-   `/opt/maiproject/apps/jpltag/compose.yaml` (ese archivo, no el
+5. Construye la imagen y confirma que no corre como root.
+5bis. **Puerta de calidad (`JPLTAG_PRUEBAS`, por defecto `si`):** antes
+   de generar nada más, corre `python manage.py test --noinput` (la
+   suite completa: `motor/` + `procesos/tests/`) dentro de la imagen
+   recién construida, aislada de verdad — `--network none`,
+   `--cap-drop ALL`, `--security-opt no-new-privileges:true`, con
+   `media/`, `salidas/` y `tmp/` en `tmpfs` y una `DJANGO_SECRET_KEY`
+   de pruebas, nunca la real. Si algo falla: imprime las últimas 25
+   líneas del log, borra la imagen recién construida y el script
+   termina ahí — no toca el contenedor que ya está publicado ni genera
+   `compose.yaml`. Para saltarla (solo en una emergencia, por ejemplo
+   si el servidor no tiene Docker con soporte de `--network none`):
+   `sudo JPLTAG_PRUEBAS=no bash 13-app-jpltag.sh`. Depende directamente
+   de que `procesos/tests/` exista y pase — ver README.md § Pruebas; en
+   particular, de la prueba que confirma que un usuario de un Juzgado
+   recibe 403 (no 404) al intentar ver o descargar resultados de otro.
+6. Genera `/opt/maiproject/apps/jpltag/compose.yaml` (ese archivo, no el
    `docker-compose.yml` de este repo, es el que se usa en producción —
    ver sección 2). La red `maipu-apps` se declara externa (la creó
    Soporte) y se crea si no existiera.
-6. Migra, corre una prueba de humo contra el esquema, y levanta el
+7. Migra, corre una prueba de humo contra el esquema, y levanta el
    contenedor (espera a que quede "healthy" — el chequeo vive en el
    `compose.yaml` generado, en Python puro, sin depender de `curl`).
-7. Crea el superusuario de Django inicial si no existe (credenciales en
+8. Crea el superusuario de Django inicial si no existe (credenciales en
    un archivo 600, nunca impresas en pantalla).
-8. Conecta el subdominio en DNS (firmado) y en HAProxy: por defecto todo
+9. Conecta el subdominio en DNS (firmado) y en HAProxy: por defecto todo
    el sitio queda restringido a las IPs autorizadas
    (`JPLTAG_SOLO_IPS=si` — jpltag maneja RUT y domicilios, igual criterio
    que la marcha blanca de MaiReservas, aunque aquí no es temporal sino
@@ -74,7 +100,7 @@ Qué hace, en orden:
    `JPLTAG_SOLO_IPS=no`. Además rechaza subidas sobre 50 MB (excepción
    propia de jpltag — el resto de las apps sigue en 6–10 MB) y agrega
    una sala de espera, igual que en Reservas.
-9. Corre una batería de pruebas (solo-lectura, Valkey, que `/salidas/`
+10. Corre una batería de pruebas (solo-lectura, Valkey, que `/salidas/`
    no responda por HTTP, que las subidas grandes vayan a disco, etc.).
    Con el sitio restringido (`JPLTAG_SOLO_IPS=si`, el default), la
    prueba de login se hace desde dentro del contenedor —desde el propio

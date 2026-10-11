@@ -52,6 +52,16 @@ PuedeGenerarCartasMixin = _mixin_por_permiso(
     "Operador, Secretario(a) y Administrador pueden).",
 )
 
+# TODO(permisos-agenda): este mixin no se usa todavía — AgendaView (en
+# views.py) revisa perfil.puede_editar_agenda() a mano dentro de su
+# post(), en vez de heredar de PuedeEditarAgendaMixin. Hoy da lo mismo:
+# los 4 roles tienen "agenda: editar" en True en PERMISOS_POR_ROL (ver
+# nucleo/models.py), así que no hay ningún caso real que lo distinga. Si
+# algún día se restringe la agenda por rol (ej. que Jueza/Juez deje de
+# poder editarla), conviene que AgendaView.post() pase a heredar de este
+# mixin en vez de repetir la comprobación inline — así el cambio en
+# PERMISOS_POR_ROL se refleja automáticamente ahí también. Confirmado con
+# el usuario el 11-oct-2026: dejarlo anotado, no resolverlo todavía.
 PuedeEditarAgendaMixin = _mixin_por_permiso(
     "puede_editar_agenda",
     "Tu rol no tiene permiso para editar la agenda.",

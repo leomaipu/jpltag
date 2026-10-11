@@ -18,38 +18,39 @@ servidor, que nunca se sube a git.
 `13-app-jpltag.sh` es un script de infraestructura del servidor, igual
 que `09-app-soporte.sh` y `10-app-reservas.sh`: vive en `~/maiproject-scripts`,
 junto a `00-config.sh` y los scripts de las otras apps — no dentro del
-repositorio de cada app. Lo revisó y corrigió el equipo que administra el
-servidor (sintaxis, shellcheck, idempotencia del bloque de HAProxy); falta
-probarlo contra una versión real de jpltag.
+repositorio de cada app. Lo revisó y corrigió dos veces el equipo que
+administra el servidor (sintaxis, shellcheck, `haproxy -c`, idempotencia
+del bloque de HAProxy); falta probarlo contra una versión real de
+jpltag, lo demás ya quedó validado contra este código.
 
-Qué hace, en orden (igual que sus hermanos, con los ajustes de la
-revisión):
+Qué hace, en orden:
 1. Verifica que PostgreSQL, PgBouncer y Valkey estén sanos, y que el
-   puerto elegido (`JPLTAG_PUERTO`, por defecto el próximo libre) no lo
-   esté usando ya otro contenedor, servicio o backend de HAProxy.
+   puerto elegido (`JPLTAG_PUERTO`, 8603 por defecto — siguiente
+   correlativo después de 8601/8602) no lo esté usando ya otro
+   contenedor, servicio o backend de HAProxy.
 2. Extrae el código del `.tar.gz` y hace un par de controles mínimos:
    que la clave salga de una variable de entorno (no escrita en el
-   código), que no haya recursos cargados desde un CDN en las
-   plantillas, que la imagen no vaya a correr como root, y avisa si
+   código), que el `Dockerfile` fije un `USER` sin privilegios, que no
+   haya recursos cargados desde un CDN en las plantillas, y avisa si
    falta `SECURE_PROXY_SSL_HEADER`, django-axes o `CONN_MAX_AGE` en
-   `settings.py` (los tres ya están — ver sección 1).
+   `settings.py` (los tres ya están — ver sección 1, ningún aviso
+   debería aparecer).
 3. Reutiliza — o crea, si faltara — la base `jpltag` y lee
    `DATABASE_URL`/`VALKEY_URL` desde `/opt/maiproject/secretos/apps/jpltag.env`.
 4. Escribe `/opt/maiproject/apps/jpltag/secretos/app.env` (600) con las
-   variables que `config/settings.py` realmente lee, más
-   `DJANGO_CSRF_TRUSTED_ORIGINS` y `TZ` (ver sección 1). Si más adelante
-   se agrega `jpltag` a `CORREO_APPS` en `12-correo.sh`, el script
-   incluye también ese archivo de SMTP — jpltag no envía correo todavía,
-   así que por ahora no tiene efecto.
-5. Construye la imagen y genera `/opt/maiproject/apps/jpltag/compose.yaml`
-   (ese archivo, no el `docker-compose.yml` de este repo, es el que se usa
-   en producción — ver sección 2). La red `maipu-apps` se declara externa
-   (la creó Soporte) y se crea si no existiera; declararla como propia,
-   como en el borrador anterior de este repo, hace fallar `docker compose`
-   por choque de etiquetas.
+   variables que `config/settings.py` realmente lee, más `TZ` y las
+   variables de la excepción de subidas grandes (ver sección 1). Si más
+   adelante se agrega `jpltag` a `CORREO_APPS` en `12-correo.sh`, el
+   script incluye también ese archivo de SMTP — jpltag no envía correo
+   todavía, así que por ahora no tiene efecto.
+5. Construye la imagen, confirma que no corre como root, y genera
+   `/opt/maiproject/apps/jpltag/compose.yaml` (ese archivo, no el
+   `docker-compose.yml` de este repo, es el que se usa en producción —
+   ver sección 2). La red `maipu-apps` se declara externa (la creó
+   Soporte) y se crea si no existiera.
 6. Migra, corre una prueba de humo contra el esquema, y levanta el
    contenedor (espera a que quede "healthy" — el chequeo vive en el
-   `compose.yaml` generado, en Python, sin depender de `curl`).
+   `compose.yaml` generado, en Python puro, sin depender de `curl`).
 7. Crea el superusuario de Django inicial si no existe (credenciales en
    un archivo 600, nunca impresas en pantalla).
 8. Conecta el subdominio en DNS (firmado) y en HAProxy: por defecto todo
@@ -57,12 +58,18 @@ revisión):
    (`JPLTAG_SOLO_IPS=si` — jpltag maneja RUT y domicilios, igual criterio
    que la marcha blanca de MaiReservas, aunque aquí no es temporal sino
    la política por defecto). Para abrirlo a Internet con login,
-   `JPLTAG_SOLO_IPS=no`. Además rechaza subidas sobre 10 MB y agrega una
-   sala de espera, igual que en Reservas.
-9. Corre una batería de pruebas (CSP, cookies, solo-lectura, Valkey, que
-   `/salidas/` no responda por HTTP, etc.). Con el sitio restringido, la
-   prueba de login se hace desde dentro del contenedor, no por HTTP
-   externo (desde el propio servidor daría 403, como se espera).
+   `JPLTAG_SOLO_IPS=no`. Además rechaza subidas sobre 50 MB (excepción
+   propia de jpltag — el resto de las apps sigue en 6–10 MB) y agrega
+   una sala de espera, igual que en Reservas.
+9. Corre una batería de pruebas (solo-lectura, Valkey, que `/salidas/`
+   no responda por HTTP, que las subidas grandes vayan a disco, etc.).
+   Con el sitio restringido (`JPLTAG_SOLO_IPS=si`, el default), la
+   prueba de login se hace desde dentro del contenedor —desde el propio
+   servidor, por HAProxy, daría 403, como se espera— y se omiten las
+   pruebas que solo tienen sentido con el sitio abierto (CSP por HTTP,
+   cookie CSRF, etc.); esas quedan para cuando se corra con
+   `JPLTAG_SOLO_IPS=no`, o para probarlas directamente dentro del
+   contenedor.
 
 Uso en el servidor, junto a los demás scripts:
 
@@ -93,22 +100,36 @@ app igual).
 DJANGO_SECRET_KEY            # generada una sola vez por el script (64 bytes al azar)
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=jpltag.maiproject.cl,localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=https://jpltag.maiproject.cl   # opcional: sin ella se calcula sola de ALLOWED_HOSTS
 DATABASE_URL                 # la genera maipu-nueva-bd jpltag (PostgreSQL vía PgBouncer)
 VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesiones)
 GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
 ```
 
-`TZ` (que el script de despliegue también deja en el `.env`, igual que
-Soporte/Reservas) no lo lee Django: `TIME_ZONE = "America/Santiago"` está
-fijo en `settings.py`. Solo afecta la hora de los logs del propio
-contenedor — no hace falta para que la app funcione, pero tampoco
-molesta tenerla. Lo que sí hace falta para que `TIME_ZONE` funcione es
-el paquete `tzdata` de PyPI (ya en `requirements.in`): `python:3.13-slim`
-no trae el paquete de sistema del mismo nombre, y el Dockerfile no usa
-`apt-get` — sin él, la primera fecha con huso horario habría fallado con
-`ZoneInfoNotFoundError`. Verificado simulando un contenedor sin tzdata de
-sistema.
+`settings.py` también sabe leer `DJANGO_CSRF_TRUSTED_ORIGINS` si alguna
+vez se necesita fijarla a mano (igual que Soporte), pero el script ya no
+la escribe: la quitaron porque, sin ella, se calcula sola a partir de
+`DJANGO_ALLOWED_HOSTS` — exactamente el mismo valor.
+
+Además del `.env` de Django, el script ajusta tres cosas por fuera de
+los *settings* para que la excepción de subidas de hasta 50 MB
+funcione de punta a punta (nada de esto requirió cambiar código —
+Django y gunicorn ya respetan estos mecanismos):
+
+```
+TMPDIR=/app/tmp                     # tempfile.gettempdir() la respeta: las subidas
+                                     # grandes se escriben en disco, no en RAM
+GUNICORN_CMD_ARGS=--timeout 180     # gunicorn la lee solo; subir+procesar un Excel
+                                     # de 50 MB puede pasar los 30 s por defecto
+TZ=America/Santiago                 # solo afecta la hora de los logs del contenedor;
+                                     # TIME_ZONE sigue fijo en settings.py
+```
+
+Lo que sí hace falta para que `TIME_ZONE = "America/Santiago"` (fijo en
+`settings.py`) funcione es el paquete `tzdata` de PyPI (ya en
+`requirements.in`): `python:3.13-slim` no trae el paquete de sistema del
+mismo nombre, y el Dockerfile no usa `apt-get` — sin él, la primera
+fecha con huso horario habría fallado con `ZoneInfoNotFoundError`.
+Verificado simulando un contenedor sin tzdata de sistema.
 
 `jpltag.env` (creado con `sudo maipu-nueva-bd jpltag`, ya ejecutado) trae
 además `VALKEY_COLAS_URL` — jpltag no usa colas/Celery en la Fase 1, así
@@ -124,22 +145,32 @@ ejecutar el script — lo recoge solo.
   (8603 si está libre; el script se detiene si ya lo usa otro
   contenedor, servicio o backend de HAProxy, y se puede fijar a mano con
   `JPLTAG_PUERTO=86xx`).
-- Dos carpetas persistentes **fuera** de la imagen, en el host:
-  `/maipu/data/files/jpltag/media` (logos/sello/firma de cada Juzgado) y
+- Tres carpetas persistentes **fuera** de la imagen, en el host:
+  `/maipu/data/files/jpltag/media` (logos/sello/firma de cada Juzgado),
   `/maipu/data/files/jpltag/salidas` (cartas, Excel de seguimiento y logs
-  de cada corrida — con RUT, domicilio y nombre del infractor). Ninguna
-  de las dos se sirve por HTTP, ni siquiera a las IPs autorizadas: la app
-  solo las entrega por su propia vista protegida de descarga, o las lee
-  directamente del disco para armar los `.docx` (ver `procesos/views.py`
-  y `motor/cartas.py`). El panel de `/admin/` para editar el logo/sello/
-  firma de un Juzgado queda sin la vista previa de la imagen (el enlace a
-  `MEDIA_URL` no responde): es una limitación conocida de la Fase 1, no un
-  error — la forma de confirmar que un logo/sello/firma quedó bien es
-  generar una carta de prueba y abrir el `.docx`.
+  de cada corrida — con RUT, domicilio y nombre del infractor) y
+  `/maipu/data/files/jpltag/tmp` (archivos subidos grandes mientras se
+  procesan). Ninguna se sirve por HTTP, ni siquiera a las IPs
+  autorizadas: la app solo entrega `salidas/` por su propia vista
+  protegida de descarga, o lee `media/` directamente del disco para
+  armar los `.docx` (ver `procesos/views.py` y `motor/cartas.py`). El
+  panel de `/admin/` para editar el logo/sello/firma de un Juzgado queda
+  sin la vista previa de la imagen (el enlace a `MEDIA_URL` no
+  responde): es una limitación conocida de la Fase 1, no un error — la
+  forma de confirmar que un logo/sello/firma quedó bien es generar una
+  carta de prueba y abrir el `.docx`.
 - Todo el sitio restringido a las IPs de `/etc/haproxy/ips-admin.lst`
-  por defecto (`JPLTAG_SOLO_IPS=si`), más una sala de espera y el rechazo
-  de subidas sobre 10 MB en HAProxy, igual que MaiReservas — ver la nota
+  por defecto (`JPLTAG_SOLO_IPS=si`), más una sala de espera y el
+  rechazo de subidas sobre 50 MB en HAProxy (excepción solo para
+  jpltag — el resto de las apps sigue en 6–10 MB) — ver la nota
   pendiente de confirmar en la sección 0.
+- Para que esos 50 MB funcionen de verdad y no solo en HAProxy: 1 GB de
+  memoria para el contenedor (pandas leyendo un Excel grande puede usar
+  varios cientos de MB — conviene mirar el uso real la primera vez en
+  Dozzle, la VM tiene 3,8 GB en total), 180 s de tiempo máximo en
+  gunicorn y 190 s en HAProxy hacia jpltag (los 30/60 s por defecto
+  cortarían a mitad de un Excel grande), y las subidas a disco
+  (`TMPDIR=/app/tmp`) en vez de RAM.
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):
   `sudo GUNICORN_WORKERS=5 bash 13-app-jpltag.sh`.
 
@@ -161,9 +192,11 @@ ejecutar el script — lo recoge solo.
 ## 4. Backups
 
 El dump de PostgreSQL ya lo cubre el backup general del servidor. Lo que
-hay que agregar a esa rutina son las dos carpetas del host:
-`/maipu/data/files/jpltag/media` y `/maipu/data/files/jpltag/salidas` —
-igual que ya se hace con el `media/` de MaiReservas.
+hay que agregar a esa rutina son `/maipu/data/files/jpltag/media` y
+`/maipu/data/files/jpltag/salidas` — igual que ya se hace con el
+`media/` de MaiReservas. `/maipu/data/files/jpltag/tmp` NO necesita
+backup: son archivos subidos a medio procesar, se pueden borrar sin
+pérdida (la app no depende de que sobrevivan a un reinicio).
 
 ## 5. Desarrollo local (no es parte del despliegue)
 
@@ -215,6 +248,22 @@ restricciones que impone `docker-compose`/el script del servidor:
   mitad de una sesión. El paso 9 de `13-app-jpltag.sh` lo verifica
   directamente (escribe y lee una clave en la caché) para no depender
   de notarlo recién en producción.
+
+Ya con el script `13-app-jpltag.sh` en su versión final (la de la
+excepción de 50 MB), se verificaron dos cosas puntuales contra este
+código, sin necesidad de Docker:
+
+- `GET /ingresar/` responde 200 con `DJANGO_DEBUG=False` (el healthcheck
+  del `compose.yaml` que genera el script, que apunta justo a esa URL,
+  funciona).
+- Una subida multipart de 10 MB a `/subir/` (con sesión real, por
+  `/ingresar/`, no `client.login()`) llega completa a la vista: Django
+  no la corta con `RequestDataTooBig` ni 413 antes de eso —
+  `DATA_UPLOAD_MAX_MEMORY_SIZE` solo limita los campos que no son
+  archivo del POST, no el contenido de `request.FILES`. No hizo falta
+  tocar ningún *setting* de Django para que la excepción de 50 MB de
+  HAProxy funcione de punta a punta; solo el `TMPDIR`/`GUNICORN_CMD_ARGS`
+  que ya pone el script.
 
 Lo único que falta probar es el `docker build` mismo (bajar la imagen
 base y armar las capas) y el script `13-app-jpltag.sh` completo contra

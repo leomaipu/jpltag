@@ -1,0 +1,61 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Panel{% endblock %}
+{% block contenido %}
+<h1>Panel</h1>
+
+{% if juzgados|length > 1 %}
+<p class="ayuda">Ves los {{ juzgados|length }} juzgados (acceso de Administrador).</p>
+{% endif %}
+
+<div class="tarjeta">
+  <h2>Acciones</h2>
+  {% if perfil.puede_generar_cartas %}
+    <a class="boton" href="{% url 'procesos:subir_nomina' %}">Subir nómina y generar cartas</a>
+  {% endif %}
+  <a class="boton boton-secundario" href="{% url 'procesos:agenda' %}">Ver agenda</a>
+</div>
+
+<div class="tarjeta">
+  <h2>Últimas generaciones</h2>
+  {% if generaciones %}
+  <table>
+    <tr><th>Juzgado</th><th>Fecha</th><th>Usuario</th><th>Patentes</th><th>Estado</th><th></th></tr>
+    {% for g in generaciones %}
+    <tr>
+      <td>{{ g.juzgado.slug|upper }}</td>
+      <td>{{ g.creado|date:"d-m-Y H:i" }}</td>
+      <td>{{ g.usuario.get_full_name|default:g.usuario.username }}</td>
+      <td>{{ g.total_patentes }}</td>
+      <td>
+        {% if g.estado == "OK" %}<span class="etiqueta etiqueta-ok">Completado</span>
+        {% elif g.estado == "CON_ERRORES" %}<span class="etiqueta etiqueta-error">Con errores</span>
+        {% else %}<span class="etiqueta etiqueta-error">Falló</span>{% endif %}
+      </td>
+      <td><a href="{% url 'procesos:resultado' g.pk %}">Ver</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">Todavía no se ha generado ninguna carta.</p>
+  {% endif %}
+</div>
+
+<div class="tarjeta">
+  <h2>Próximos bloques de agenda</h2>
+  {% if proximos_bloques %}
+  <table>
+    <tr><th>Juzgado</th><th>Fecha</th><th>Hora</th><th>Cupos</th></tr>
+    {% for b in proximos_bloques %}
+    <tr>
+      <td>{{ b.juzgado.slug|upper }}</td>
+      <td>{{ b.fecha|date:"d-m-Y" }}</td>
+      <td>{{ b.hora|time:"H:i" }}</td>
+      <td>{{ b.cupos_usados }}/{{ b.cupos_totales }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">No hay bloques de horario cargados. Agrégalos en <a href="{% url 'procesos:agenda' %}">Agenda</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

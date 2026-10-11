@@ -1,0 +1,48 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Agenda{% endblock %}
+{% block contenido %}
+<h1>Agenda de audiencias{% if juzgado %} — {{ juzgado.nombre }}{% endif %}</h1>
+
+{% if juzgados|length > 1 %}
+<form method="get" class="tarjeta">
+  <label for="juzgado">Juzgado</label>
+  <select name="juzgado" id="juzgado" onchange="this.form.submit()">
+    {% for j in juzgados %}
+    <option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if form %}
+<form method="post" class="tarjeta">
+  {% csrf_token %}
+  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+  {% for campo in form %}
+  <p>
+    <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+    {{ campo }}
+    {{ campo.errors }}
+  </p>
+  {% endfor %}
+  <button type="submit" class="boton">Agregar bloque</button>
+</form>
+{% endif %}
+
+<div class="tarjeta">
+  {% if bloques %}
+  <table>
+    <tr><th>Fecha</th><th>Hora</th><th>Cupos</th></tr>
+    {% for b in bloques %}
+    <tr>
+      <td>{{ b.fecha|date:"d-m-Y" }}</td>
+      <td>{{ b.hora|time:"H:i" }}</td>
+      <td>{{ b.cupos_usados }}/{{ b.cupos_totales }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">No hay bloques de horario cargados todavía.</p>
+  {% endif %}
+</div>
+{% endblock %}

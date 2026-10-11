@@ -1,0 +1,39 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Subir nómina{% endblock %}
+{% block contenido %}
+<h1>Subir nómina y generar cartas — {{ juzgado.nombre }}</h1>
+
+{% if juzgados|length > 1 %}
+<form method="get" class="tarjeta">
+  <label for="juzgado">Juzgado</label>
+  <select name="juzgado" id="juzgado" onchange="this.form.submit()">
+    {% for j in juzgados %}
+    <option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="tarjeta">
+  {% csrf_token %}
+  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+  {{ form.non_field_errors }}
+  {% for campo in form %}
+  <p>
+    <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+    {{ campo }}
+    {% if campo.help_text %}<div class="ayuda">{{ campo.help_text }}</div>{% endif %}
+    {{ campo.errors }}
+  </p>
+  {% endfor %}
+  <button type="submit" class="boton">Generar cartas</button>
+</form>
+
+<p class="ayuda">
+  Se generan las cartas de citación de las patentes de este juzgado
+  (infracciones de los días {{ juzgado.dia_desde }} a {{ juzgado.dia_hasta }}
+  del mes predominante de la nómina), agrupando TODAS las infracciones de
+  cada patente en una sola carta — así cada infractor recibe una sola
+  notificación al mes, aunque tenga varias multas.
+</p>
+{% endblock %}

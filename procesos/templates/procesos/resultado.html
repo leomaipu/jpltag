@@ -1,0 +1,54 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Resultado{% endblock %}
+{% block contenido %}
+<h1>Resultado — {{ generacion.juzgado.nombre }}</h1>
+
+<div class="tarjeta">
+  {% if generacion.estado == "OK" %}
+    <span class="etiqueta etiqueta-ok">Completado</span>
+  {% elif generacion.estado == "CON_ERRORES" %}
+    <span class="etiqueta etiqueta-error">Completado con errores</span>
+  {% else %}
+    <span class="etiqueta etiqueta-error">Falló</span>
+  {% endif %}
+
+  <p>
+    Nómina: {{ generacion.nombre_archivo_nomina }}
+    {% if mes_nombre %} · Periodo: {{ mes_nombre }} {{ generacion.anio_periodo }}{% endif %}
+  </p>
+  <p>Patentes notificadas: <strong>{{ generacion.total_patentes }}</strong></p>
+
+  {% if generacion.mensaje_error %}
+  <p class="ayuda">{{ generacion.mensaje_error }}</p>
+  {% endif %}
+
+  <ul>
+    <li>Filas con N° de parte duplicado (excluidas): {{ generacion.total_duplicados }}</li>
+    <li>Patentes sin ninguna causa válida (excluidas): {{ generacion.total_sin_causas_validas }}</li>
+    <li>Patentes sin cupo de agenda disponible: {{ generacion.total_sin_cupo_agenda }}</li>
+    {% if generacion.avisos.disposiciones_sin_multa_definida %}
+    <li>Disposiciones sin multa definida (se usó el valor por defecto): {{ generacion.avisos.disposiciones_sin_multa_definida|join:", " }}</li>
+    {% endif %}
+  </ul>
+</div>
+
+<div class="tarjeta">
+  <h2>Archivos para imprimir</h2>
+  {% if archivos %}
+  <table>
+    <tr><th>Tipo</th><th>Archivo</th><th></th></tr>
+    {% for a in archivos %}
+    <tr>
+      <td>{{ a.get_tipo_display }}</td>
+      <td>{{ a.nombre_descarga }}</td>
+      <td><a class="boton boton-secundario" href="{% url 'procesos:descargar' a.pk %}">Descargar</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">No se generó ningún archivo.</p>
+  {% endif %}
+</div>
+
+<a href="{% url 'procesos:panel' %}">&larr; Volver al panel</a>
+{% endblock %}

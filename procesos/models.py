@@ -1,0 +1,81 @@
+"""
+Registro de cada corrida del motor de generación de cartas, disparada
+desde la web (procesos.views). Reemplaza al Excel de seguimiento manual +
+la memoria de "quién corrió qué script y cuándo" que hoy no queda
+guardada en ningún lado — con esto queda trazabilidad de cada envío
+mensual por juzgado.
+"""
+
+from django.conf import settings
+from django.db import models
+
+from nucleo.models import Juzgado
+
+
+class GeneracionCartas(models.Model):
+    """Una corrida completa del motor para un juzgado: de la nómina subida
+    a los archivos de salida (cartas, seguimiento, duplicados, log de
+    errores)."""
+
+    class Estado(models.TextChoices):
+        OK = "OK", "Completado"
+        CON_ERRORES = "CON_ERRORES", "Completado con errores"
+        FALLIDO = "FALLIDO", "Falló"
+
+    juzgado = models.ForeignKey(Juzgado, on_delete=models.PROTECT, related_name="generaciones")
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="generaciones_cartas",
+    )
+    creado = models.DateTimeField(auto_now_add=True)
+
+    nombre_archivo_nomina = models.CharField(max_length=255)
+    anio_periodo = models.PositiveIntegerField(null=True, blank=True)
+    mes_periodo = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    total_patentes = models.PositiveIntegerField(default=0)
+    total_duplicados = models.PositiveIntegerField(default=0)
+    total_sin_causas_validas = models.PositiveIntegerField(default=0)
+    total_sin_cupo_agenda = models.PositiveIntegerField(default=0)
+
+    carpeta_salida = models.CharField(
+        max_length=500,
+        help_text="Ruta relativa a settings.SALIDAS_ROOT donde quedaron los archivos de esta corrida.",
+    )
+    avisos = models.JSONField(
+        default=dict, blank=True,
+        help_text="Avisos del motor (filas sin patente, disposiciones sin multa, etc.), para mostrar en el resultado.",
+    )
+    estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.OK)
+    mensaje_error = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Generación de cartas"
+        verbose_name_plural = "Generaciones de cartas"
+        ordering = ["-creado"]
+
+    def __str__(self):
+        return f"{self.juzgado.slug} · {self.creado:%d-%m-%Y %H:%M} · {self.usuario.get_username()}"
+
+
+class ArchivoGenerado(models.Model):
+    """Un archivo descargable producido por una GeneracionCartas: un lote
+    de cartas, el Excel de seguimiento, el reporte de duplicados o el log
+    de errores de procesamiento."""
+
+    class Tipo(models.TextChoices):
+        CARTAS = "CARTAS", "Cartas (lote)"
+        SEGUIMIENTO = "SEGUIMIENTO", "Excel de seguimiento"
+        DUPLICADOS = "DUPLICADOS", "Reporte de duplicados"
+        LOG_ERRORES = "LOG_ERRORES", "Log de errores de procesamiento"
+
+    generacion = models.ForeignKey(GeneracionCartas, on_delete=models.CASCADE, related_name="archivos")
+    tipo = models.CharField(max_length=20, choices=Tipo.choices)
+    ruta = models.CharField(max_length=500, help_text="Ruta relativa a settings.SALIDAS_ROOT.")
+    nombre_descarga = models.CharField(max_length=255)
+
+    class Meta:
+        verbose_name = "Archivo generado"
+        verbose_name_plural = "Archivos generados"
+
+    def __str__(self):
+        return self.nombre_descarga

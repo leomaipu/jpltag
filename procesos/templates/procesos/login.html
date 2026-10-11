@@ -1,0 +1,20 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Ingresar{% endblock %}
+{% block contenido %}
+<div class="tarjeta" style="max-width:380px;margin:3rem auto;">
+  <h1>Ingresar</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <p>
+      <label for="{{ form.username.id_for_label }}">Usuario</label>
+      {{ form.username }}
+    </p>
+    <p>
+      <label for="{{ form.password.id_for_label }}">Clave</label>
+      {{ form.password }}
+    </p>
+    <button type="submit" class="boton">Ingresar</button>
+  </form>
+</div>
+{% endblock %}

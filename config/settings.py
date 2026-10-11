@@ -93,19 +93,31 @@ WSGI_APPLICATION = "config.wsgi.application"
 # ──────────────────────────────────────────────────────────────────────────
 # Base de datos (PostgreSQL vía PgBouncer, modo transacción)
 # ──────────────────────────────────────────────────────────────────────────
-DATABASES = {"default": env.db_url("DATABASE_URL")}
+# El default a SQLite local es solo para correr `manage.py test`/`check` y
+# generar migraciones sin un Postgres a mano (ej. en este sandbox de
+# desarrollo); en el servidor real SIEMPRE llega DATABASE_URL (lo genera
+# `sudo maipu-nueva-bd jpltag`), así que este default nunca se usa ahí.
+DATABASES = {
+    "default": env.db_url("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+}
 DATABASES["default"]["CONN_MAX_AGE"] = 0
 DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
 # ──────────────────────────────────────────────────────────────────────────
 # Caché y sesiones (Valkey)
 # ──────────────────────────────────────────────────────────────────────────
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": env("VALKEY_URL", default="redis://127.0.0.1:6379/0"),
+# Igual que con DATABASES: sin VALKEY_URL (fuera del servidor real) se cae a
+# caché en memoria del proceso, solo para poder correr `manage.py test`/
+# `runserver` en una máquina de desarrollo sin Valkey instalado.
+if env("VALKEY_URL", default=""):
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": env("VALKEY_URL"),
+        }
     }
-}
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
@@ -159,6 +171,14 @@ STORAGES = {
 }
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Cartas generadas, Excel de seguimiento, duplicados y logs de error de cada
+# corrida (motor.cartas.generar_cartas_certificadas). A propósito NO viven
+# bajo MEDIA_ROOT/MEDIA_URL: traen RUT, domicilio y nombre del infractor, así
+# que nunca se sirven por una URL pública — solo la vista protegida de
+# descarga (procesos.views) los entrega, y solo a un usuario con acceso a
+# ese juzgado (ver nucleo.models.PerfilUsuario.tiene_acceso_a).
+SALIDAS_ROOT = BASE_DIR / "salidas"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

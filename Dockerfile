@@ -53,7 +53,17 @@ USER jpltag
 
 EXPOSE 8000
 
-CMD ["gunicorn", "config.wsgi:application", \
-     "--bind", "0.0.0.0:8000", \
-     "--workers", "3", \
-     "--no-control-socket"]
+# El script de despliegue del servidor (11-app-jpltag.sh) espera a que el
+# contenedor quede "healthy" (docker inspect) antes de tocar HAProxy/DNS.
+# /ingresar/ no requiere sesión y responde 200 sin tocar la base de datos
+# en el camino crítico, así que sirve como chequeo liviano.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ingresar/', timeout=3)" || exit 1
+
+# Forma shell (no exec) a propósito: así ${GUNICORN_WORKERS} se puede
+# ajustar desde el .env del servidor sin reconstruir la imagen (mismo
+# mecanismo que usa MaiReservas para crecer sin un despliegue nuevo).
+CMD gunicorn config.wsgi:application \
+    --bind 0.0.0.0:8000 \
+    --workers "${GUNICORN_WORKERS:-3}" \
+    --no-control-socket

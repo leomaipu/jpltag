@@ -1,55 +1,59 @@
-# Plantilla de despliegue — sigue el mismo patrón ya en uso para Soporte
-# Existencias y MaiReservas en maiproject.cl (ver DESPLIEGUE.md): puerto
-# publicado solo en 127.0.0.1 (HAProxy es la única puerta de entrada),
-# filesystem de solo lectura, sin capacidades extra, sin poder escalar
-# privilegios, y conectado a las redes de datos/apps que ya existen en el
-# servidor en vez de crear infraestructura nueva.
+# Solo para DESARROLLO LOCAL — `docker compose up --build` levanta jpltag
+# junto a un Postgres y un Valkey propios, para probar sin tocar nada del
+# servidor real.
+#
+# En producción esto NO se usa: el despliegue en maiproject.cl genera su
+# propio compose.yaml (con la imagen ya construida, los secretos reales en
+# /opt/maiproject/secretos/apps/jpltag.env y /opt/maiproject/apps/jpltag/
+# secretos/app.env, y los volúmenes de datos en /maipu/data/files/jpltag/)
+# a través del script de despliegue del servidor — ver DESPLIEGUE.md.
 
 services:
   jpltag:
     build:
       context: .
       dockerfile: Dockerfile
-    image: jpltag:latest
-    container_name: jpltag
-    restart: unless-stopped
-    env_file:
-      - .env
+    image: jpltag:dev
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: clave-insegura-solo-para-desarrollo-local
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_URL: postgres://jpltag:jpltag@db:5432/jpltag
+      VALKEY_URL: redis://valkey:6379/0
     ports:
-      # AJUSTAR el puerto: usar el próximo puerto libre en 127.0.0.1,
-      # siguiendo el mismo patrón que los otros backends ya publicados
-      # (ver /etc/haproxy/hosts.map y los backends existentes).
-      - "127.0.0.1:8042:8000"
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - "no-new-privileges:true"
+      - "127.0.0.1:8000:8000"
     volumes:
-      # Logos/sellos/firmas de cada Juzgado (nucleo.models.Juzgado) y las
-      # cartas/Excel/log generados por cada corrida (procesos.models);
-      # estos últimos traen RUT, domicilio y nombre del infractor — nunca
-      # se sirven por una URL pública, solo por la vista protegida de
-      # descarga (ver procesos/views.py).
-      - jpltag_media:/app/media
-      - jpltag_salidas:/app/salidas
-    networks:
-      - datos
-      - apps
+      - jpltag_media_dev:/app/media
+      - jpltag_salidas_dev:/app/salidas
 
-networks:
-  # Redes ya existentes en el servidor (PostgreSQL+PgBouncer+Valkey viven
-  # en "datos"; HAProxy alcanza los backends de todas las apps por "apps").
-  # No se crea infraestructura nueva — se reutiliza la ya documentada.
-  datos:
-    external: true
-    name: maipu-datos
-  apps:
-    external: true
-    name: maipu-apps
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: jpltag
+      POSTGRES_PASSWORD: jpltag
+      POSTGRES_DB: jpltag
+    volumes:
+      - jpltag_db_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jpltag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
-  jpltag_media:
-  jpltag_salidas:
+  jpltag_db_dev:
+  jpltag_media_dev:
+  jpltag_salidas_dev:

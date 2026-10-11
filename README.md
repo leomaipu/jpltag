@@ -49,8 +49,22 @@ el resto, solo el suyo.
 
 ## Desarrollo local
 
-Requiere Python 3.13 y las dependencias de `requirements.txt` (generadas
-con `pip-compile --generate-hashes` desde `requirements.in`):
+Dos formas, a elegir:
+
+**Con Docker** (no requiere nada instalado salvo Docker):
+
+```bash
+docker compose up --build
+```
+
+Levanta jpltag junto a un Postgres y un Valkey propios, en
+`http://localhost:8000`. Es solo para desarrollo — en producción se usa
+el `compose.yaml` que genera el script de despliegue del servidor, no
+este archivo (ver DESPLIEGUE.md).
+
+**Sin Docker**, con Python 3.13 y las dependencias de `requirements.txt`
+(generadas con `pip-compile --generate-hashes --strip-extras` desde
+`requirements.in`):
 
 ```bash
 pip install --require-hashes -r requirements.txt
@@ -89,12 +103,12 @@ python manage.py test
 ## Dependencias
 
 `requirements.in` lista las dependencias de primer nivel; `requirements.txt`
-es el resultado de `pip-compile --generate-hashes` (con hash de cada
-paquete, incluidas las dependencias transitivas) y es el que de verdad
-se instala — en desarrollo y en la imagen de Docker. Para actualizar una
-versión:
+es el resultado de `pip-compile --generate-hashes --strip-extras` (con
+hash de cada paquete, incluidas las dependencias transitivas, mismo
+comando que usa Soporte Existencias) y es el que de verdad se instala —
+en desarrollo y en la imagen de Docker. Para actualizar una versión:
 
 ```bash
-pip-compile --generate-hashes --output-file=requirements.txt requirements.in
+pip-compile --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
 pip-audit -r requirements.txt
 ```

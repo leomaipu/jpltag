@@ -38,16 +38,22 @@ COPY . .
 # con cap_drop: [ALL] y no-new-privileges:true en docker-compose.yml, es
 # lo que de verdad limita qué puede hacer el contenedor si algo sale mal.
 #
-# /app/media y /app/salidas se crean y se dejan de su dueño ACÁ (antes de
-# montar los volúmenes nombrados en docker-compose.yml): Docker copia el
-# contenido y los permisos de esta carpeta hacia el volumen vacío la
-# primera vez que se crea, así que el usuario jpltag ya puede escribir
-# ahí sin pasos adicionales.
+# /app/media, /app/salidas y /app/tmp se crean y se dejan de su dueño
+# ACÁ. En producción los tres se tapan con un volumen (nombrado en el
+# compose de desarrollo de este repo; una carpeta del host en el
+# despliegue real del servidor — ver DESPLIEGUE.md), así que lo que
+# manda ahí es el dueño/permisos de ese volumen o carpeta, no esto. Esto
+# solo cubre el caso sin volumen (ej. `docker run` directo): que el
+# usuario jpltag pueda escribir ahí sin pasos adicionales.
+# /app/tmp: Django escribe ahí los archivos subidos grandes cuando se
+# fija TMPDIR=/app/tmp (ver nomina/tipo_causas en procesos/forms.py) —
+# tempfile.gettempdir() respeta esa variable sin que la app tenga que
+# leerla ella misma.
 RUN useradd --system --no-create-home --uid 10001 jpltag \
-    && mkdir -p /app/media /app/salidas /app/staticfiles \
+    && mkdir -p /app/media /app/salidas /app/tmp /app/staticfiles \
     && DJANGO_SECRET_KEY=solo-para-construir-la-imagen \
        python manage.py collectstatic --noinput \
-    && chown -R jpltag:jpltag /app/media /app/salidas /app/staticfiles
+    && chown -R jpltag:jpltag /app/media /app/salidas /app/tmp /app/staticfiles
 
 USER jpltag
 

@@ -53,10 +53,12 @@ USER jpltag
 
 EXPOSE 8000
 
-# El script de despliegue del servidor (11-app-jpltag.sh) espera a que el
-# contenedor quede "healthy" (docker inspect) antes de tocar HAProxy/DNS.
-# /ingresar/ no requiere sesión y responde 200 sin tocar la base de datos
-# en el camino crítico, así que sirve como chequeo liviano.
+# El script de despliegue del servidor (13-app-jpltag.sh) espera a que el
+# contenedor quede "healthy" antes de tocar HAProxy/DNS. En producción el
+# chequeo real vive en el compose.yaml que genera ese script (en Python,
+# sin curl); este HEALTHCHECK queda para `docker run`/el compose de
+# desarrollo de este repo. /ingresar/ no requiere sesión y responde 200
+# sin tocar la base de datos en el camino crítico.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ingresar/', timeout=3)" || exit 1
 

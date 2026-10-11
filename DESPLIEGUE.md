@@ -4,8 +4,10 @@ Sigue el mismo procedimiento ya en uso para publicar una app Django nueva
 en el servidor (el mismo usado para Soporte Existencias y MaiReservas):
 un script numerado, idempotente, que arma la imagen, migra la base,
 conecta HAProxy/DNS y deja un informe de pruebas — no un `docker compose
-build/up` manual. Ver `11-app-jpltag.sh` (entregado aparte, no vive en
-este repositorio — ver la sección 0 de abajo).
+build/up` manual. Ver `13-app-jpltag.sh` (entregado aparte, no vive en
+este repositorio — ver la sección 0 de abajo). El número definitivo es
+13, no 11: en `~/maiproject-scripts` el 11 y el 12 ya estaban tomados
+(ajustes de seguridad y correo).
 
 **Importante:** este repositorio es público. Ningún paso de abajo escribe
 un secreto real dentro del repo — todos van a `/opt/maiproject/...` en el
@@ -13,33 +15,54 @@ servidor, que nunca se sube a git.
 
 ## 0. El script de despliegue no vive en este repositorio
 
-`11-app-jpltag.sh` es un script de infraestructura del servidor, igual
-que `09-app-soporte.sh` y `10-app-reservas.sh`: vive en la misma carpeta
-que `00-config.sh`, junto a los scripts de las otras apps — no dentro del
-repositorio de cada app. Se entrega por separado (ver el archivo adjunto
-a esta conversación) para que el equipo lo revise, lo pruebe contra una
-versión real de jpltag y lo lleve a esa carpeta.
+`13-app-jpltag.sh` es un script de infraestructura del servidor, igual
+que `09-app-soporte.sh` y `10-app-reservas.sh`: vive en `~/maiproject-scripts`,
+junto a `00-config.sh` y los scripts de las otras apps — no dentro del
+repositorio de cada app. Lo revisó y corrigió el equipo que administra el
+servidor (sintaxis, shellcheck, idempotencia del bloque de HAProxy); falta
+probarlo contra una versión real de jpltag.
 
-Qué hace, en orden (igual que sus hermanos):
-1. Verifica que PostgreSQL, PgBouncer y Valkey estén sanos.
-2. Extrae el código del `.tar.gz` y hace un par de controles mínimos
-   (que la clave salga de una variable de entorno, no escrita en el
-   código; que no haya recursos cargados desde un CDN en las plantillas).
+Qué hace, en orden (igual que sus hermanos, con los ajustes de la
+revisión):
+1. Verifica que PostgreSQL, PgBouncer y Valkey estén sanos, y que el
+   puerto elegido (`JPLTAG_PUERTO`, por defecto el próximo libre) no lo
+   esté usando ya otro contenedor, servicio o backend de HAProxy.
+2. Extrae el código del `.tar.gz` y hace un par de controles mínimos:
+   que la clave salga de una variable de entorno (no escrita en el
+   código), que no haya recursos cargados desde un CDN en las
+   plantillas, que la imagen no vaya a correr como root, y avisa si
+   falta `SECURE_PROXY_SSL_HEADER`, django-axes o `CONN_MAX_AGE` en
+   `settings.py` (los tres ya están — ver sección 1).
 3. Reutiliza — o crea, si faltara — la base `jpltag` y lee
    `DATABASE_URL`/`VALKEY_URL` desde `/opt/maiproject/secretos/apps/jpltag.env`.
 4. Escribe `/opt/maiproject/apps/jpltag/secretos/app.env` (600) con las
-   variables que `config/settings.py` realmente lee (ver sección 1).
+   variables que `config/settings.py` realmente lee, más
+   `DJANGO_CSRF_TRUSTED_ORIGINS` y `TZ` (ver sección 1). Si más adelante
+   se agrega `jpltag` a `CORREO_APPS` en `12-correo.sh`, el script
+   incluye también ese archivo de SMTP — jpltag no envía correo todavía,
+   así que por ahora no tiene efecto.
 5. Construye la imagen y genera `/opt/maiproject/apps/jpltag/compose.yaml`
    (ese archivo, no el `docker-compose.yml` de este repo, es el que se usa
-   en producción — ver sección 2).
+   en producción — ver sección 2). La red `maipu-apps` se declara externa
+   (la creó Soporte) y se crea si no existiera; declararla como propia,
+   como en el borrador anterior de este repo, hace fallar `docker compose`
+   por choque de etiquetas.
 6. Migra, corre una prueba de humo contra el esquema, y levanta el
-   contenedor (espera a que quede "healthy").
+   contenedor (espera a que quede "healthy" — el chequeo vive en el
+   `compose.yaml` generado, en Python, sin depender de `curl`).
 7. Crea el superusuario de Django inicial si no existe (credenciales en
    un archivo 600, nunca impresas en pantalla).
-8. Conecta el subdominio en DNS (firmado) y en HAProxy (`/admin/` solo
-   desde las IPs autorizadas, igual que en Soporte).
-9. Corre una batería de pruebas (CSP, cookies, solo-lectura, Valkey, etc.)
-   y deja el resultado en pantalla.
+8. Conecta el subdominio en DNS (firmado) y en HAProxy: por defecto todo
+   el sitio queda restringido a las IPs autorizadas
+   (`JPLTAG_SOLO_IPS=si` — jpltag maneja RUT y domicilios, igual criterio
+   que la marcha blanca de MaiReservas, aunque aquí no es temporal sino
+   la política por defecto). Para abrirlo a Internet con login,
+   `JPLTAG_SOLO_IPS=no`. Además rechaza subidas sobre 10 MB y agrega una
+   sala de espera, igual que en Reservas.
+9. Corre una batería de pruebas (CSP, cookies, solo-lectura, Valkey, que
+   `/salidas/` no responda por HTTP, etc.). Con el sitio restringido, la
+   prueba de login se hace desde dentro del contenedor, no por HTTP
+   externo (desde el propio servidor daría 403, como se espera).
 
 Uso en el servidor, junto a los demás scripts:
 
@@ -47,36 +70,49 @@ Uso en el servidor, junto a los demás scripts:
 # en el repositorio, generar el tarball de la versión a publicar
 git archive --format=tar.gz --prefix=jpltag/ -o jpltag-$(git rev-parse --short HEAD).tar.gz HEAD
 
-# copiarlo junto al script, a la misma carpeta que 00-config.sh/09-app-soporte.sh
-scp 11-app-jpltag.sh jpltag-<commit>.tar.gz maiproject:<carpeta-de-los-scripts>/
+# copiarlo junto al script, a ~/maiproject-scripts
+scp 13-app-jpltag.sh jpltag-<commit>.tar.gz maiproject:~/maiproject-scripts/
 
 # en el servidor
-cd <carpeta-de-los-scripts> && sudo bash 11-app-jpltag.sh 2>&1 | tee resultado-11.txt
+cd ~/maiproject-scripts && sudo bash 13-app-jpltag.sh 2>&1 | tee resultado-13.txt
 ```
 
 Para publicar una versión nueva más adelante, se repite exactamente lo
 mismo con un `.tar.gz` nuevo — es idempotente, igual que sus hermanos.
 
+**Pendiente de confirmar con el Juzgado:** con `JPLTAG_SOLO_IPS=si` por
+defecto, solo se puede entrar desde las IPs de `/etc/haproxy/ips-admin.lst`.
+Si algún funcionario de los 3 Juzgados necesita entrar desde fuera de esa
+lista (por ejemplo, en teletrabajo), hay que agregar esa IP a la lista o
+correr el script con `JPLTAG_SOLO_IPS=no` (el login sigue protegiendo la
+app igual).
+
 ## 1. Variables que de verdad lee `config/settings.py`
 
-Solo seis, todas con el prefijo `DJANGO_` salvo las dos que ya genera
-`maipu-nueva-bd`:
-
 ```
-DJANGO_SECRET_KEY        # generada una sola vez por el script (64 bytes al azar)
+DJANGO_SECRET_KEY            # generada una sola vez por el script (64 bytes al azar)
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=jpltag.maiproject.cl,localhost,127.0.0.1
-DATABASE_URL             # la genera maipu-nueva-bd jpltag (PostgreSQL vía PgBouncer)
-VALKEY_URL               # la genera maipu-nueva-bd jpltag (caché y sesiones)
-GLITCHTIP_DSN            # opcional — vacío hasta crear el proyecto en GlitchTip
+DJANGO_CSRF_TRUSTED_ORIGINS=https://jpltag.maiproject.cl   # opcional: sin ella se calcula sola de ALLOWED_HOSTS
+DATABASE_URL                 # la genera maipu-nueva-bd jpltag (PostgreSQL vía PgBouncer)
+VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesiones)
+GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
 ```
+
+`TZ` (que el script de despliegue también deja en el `.env`, igual que
+Soporte/Reservas) no lo lee Django: `TIME_ZONE = "America/Santiago"` está
+fijo en `settings.py`. Solo afecta la hora de los logs del propio
+contenedor — no hace falta para que la app funcione, pero tampoco
+molesta tenerla. Lo que sí hace falta para que `TIME_ZONE` funcione es
+el paquete `tzdata` de PyPI (ya en `requirements.in`): `python:3.13-slim`
+no trae el paquete de sistema del mismo nombre, y el Dockerfile no usa
+`apt-get` — sin él, la primera fecha con huso horario habría fallado con
+`ZoneInfoNotFoundError`. Verificado simulando un contenedor sin tzdata de
+sistema.
 
 `jpltag.env` (creado con `sudo maipu-nueva-bd jpltag`, ya ejecutado) trae
 además `VALKEY_COLAS_URL` — jpltag no usa colas/Celery en la Fase 1, así
 que esa variable queda sin usar a propósito; no hace falta borrarla.
-
-`CSRF_TRUSTED_ORIGINS` no es una variable aparte: `settings.py` la
-calcula de `DJANGO_ALLOWED_HOSTS` directamente.
 
 GlitchTip: crear el proyecto `jpltag` en `errores.maiproject.cl`, dejar el
 DSN en `/opt/maiproject/apps/jpltag/secretos/sentry_dsn` (600) y volver a
@@ -84,8 +120,10 @@ ejecutar el script — lo recoge solo.
 
 ## 2. Qué deja publicado el script
 
-- Un contenedor (`maipu-jpltag`), solo en `127.0.0.1:8603` — ajustar el
-  puerto en el script si ya está en uso por otra app.
+- Un contenedor (`maipu-jpltag`), solo en `127.0.0.1:$JPLTAG_PUERTO`
+  (8603 si está libre; el script se detiene si ya lo usa otro
+  contenedor, servicio o backend de HAProxy, y se puede fijar a mano con
+  `JPLTAG_PUERTO=86xx`).
 - Dos carpetas persistentes **fuera** de la imagen, en el host:
   `/maipu/data/files/jpltag/media` (logos/sello/firma de cada Juzgado) y
   `/maipu/data/files/jpltag/salidas` (cartas, Excel de seguimiento y logs
@@ -98,12 +136,12 @@ ejecutar el script — lo recoge solo.
   `MEDIA_URL` no responde): es una limitación conocida de la Fase 1, no un
   error — la forma de confirmar que un logo/sello/firma quedó bien es
   generar una carta de prueba y abrir el `.docx`.
-- `/admin/` restringido a las IPs de `/etc/haproxy/ips-admin.lst`, igual
-  que Soporte Existencias (jpltag no necesita la "marcha blanca" de
-  MaiReservas: el login ya protege toda la app, no hay datos de vecinos
-  simulados).
+- Todo el sitio restringido a las IPs de `/etc/haproxy/ips-admin.lst`
+  por defecto (`JPLTAG_SOLO_IPS=si`), más una sala de espera y el rechazo
+  de subidas sobre 10 MB en HAProxy, igual que MaiReservas — ver la nota
+  pendiente de confirmar en la sección 0.
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):
-  `sudo GUNICORN_WORKERS=5 bash 11-app-jpltag.sh`.
+  `sudo GUNICORN_WORKERS=5 bash 13-app-jpltag.sh`.
 
 ## 3. Primer ingreso
 
@@ -132,9 +170,9 @@ igual que ya se hace con el `media/` de MaiReservas.
 `docker-compose.yml`, en este repositorio, es solo para desarrollo:
 `docker compose up --build` levanta jpltag junto a un Postgres y un
 Valkey propios, sin tocar nada del servidor. El `compose.yaml` que de
-verdad corre en producción lo genera `11-app-jpltag.sh` (sección 4 de
-ese script), con los secretos reales y las carpetas de datos del host —
-son archivos distintos, a propósito.
+verdad corre en producción lo genera `13-app-jpltag.sh`, con los
+secretos reales y las carpetas de datos del host — son archivos
+distintos, a propósito.
 
 ## 6. Nota honesta sobre lo validado antes de tener acceso al servidor
 
@@ -174,11 +212,11 @@ restricciones que impone `docker-compose`/el script del servidor:
   `/opt/maiproject/secretos/apps/jpltag.env`), esto no aplica — pero si
   alguna vez el contenedor arranca sin esa variable, la señal va a ser
   exactamente esta: usuarios que aparentemente se desloguean solos a
-  mitad de una sesión. El paso 8 de `11-app-jpltag.sh` lo verifica
+  mitad de una sesión. El paso 9 de `13-app-jpltag.sh` lo verifica
   directamente (escribe y lee una clave en la caché) para no depender
   de notarlo recién en producción.
 
 Lo único que falta probar es el `docker build` mismo (bajar la imagen
-base y armar las capas) y el script `11-app-jpltag.sh` completo contra
+base y armar las capas) y el script `13-app-jpltag.sh` completo contra
 el servidor real — eso ya depende del equipo, no de este entorno de
 desarrollo.

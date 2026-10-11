@@ -387,27 +387,25 @@ el código.
 (11-oct-2026):** Leonardo lo corrió dentro del contenedor ya publicado
 (`docker exec maipu-jpltag python manage.py check --deploy`) y salieron
 dos warnings, `security.W004` (sin `SECURE_HSTS_SECONDS`) y `security.W008`
-(`SECURE_SSL_REDIRECT` no es `True`). Se revisaron por separado porque no
-es seguro "arreglar" los dos de la misma forma:
+(`SECURE_SSL_REDIRECT` no es `True`). Los dos se dejan SIN activar en
+`config/settings.py` y se silencian a propósito (`SILENCED_SYSTEM_CHECKS`),
+no por descuido — es la misma razón para los dos, confirmada con Leonardo
+el mismo día: HAProxy ya hace ambas cosas en el borde, de forma idéntica
+para las 3 apps del servidor, no solo jpltag: redirige todo el puerto 80 a
+HTTPS con 301, y agrega `Strict-Transport-Security` (max-age de 1 año,
+`includeSubDomains`) en toda respuesta. Django nunca ve esa conexión
+directamente, así que duplicar cualquiera de las dos cosas acá:
 
-- **HSTS (W004) sí se activó** en `config/settings.py`
-  (`SECURE_HSTS_SECONDS`, `..._INCLUDE_SUBDOMAINS`, `..._PRELOAD`, todo
-  condicionado a `not DEBUG`) — es seguro porque `SecurityMiddleware`
-  solo agrega esa cabecera cuando la request llega con
-  `X-Forwarded-Proto: https` (ver `SECURE_PROXY_SSL_HEADER`), algo que ni
-  el healthcheck del `compose.yaml` ni la prueba de login dentro del
-  contenedor (§0 y más arriba en esta sección) mandan — confirmado con
-  una prueba puntual: la misma vista responde 200 sin esa cabecera y
-  sigue respondiendo 200 con `Strict-Transport-Security` cuando sí se
-  manda, simulando ambos casos.
-- **`SECURE_SSL_REDIRECT` (W008) se dejó deliberadamente en `False`**, y
-  el warning se silencia a propósito (`SILENCED_SYSTEM_CHECKS`) en vez de
-  activar el setting: es HAProxy quien termina el TLS y decide si
-  redirige HTTP→HTTPS en el borde, Django nunca ve esa conexión. Si se
-  pusiera en `True`, Django redirigiría también el tráfico HTTP interno
-  sin esa cabecera — exactamente el que usan el healthcheck y la prueba
-  de login recién mencionados — rompiendo ambos. Queda pendiente, pero
-  fuera de este repositorio: confirmar con quien administra HAProxy que
-  el borde efectivamente redirige HTTP→HTTPS para `jpltag.maiproject.cl`
-  (se asume que sí, igual que las otras dos apps, pero no se verificó
-  desde acá).
+- `SECURE_SSL_REDIRECT=True` redirigiría también el tráfico HTTP interno
+  (sin `X-Forwarded-Proto: https`) con el que ya se prueba la app dentro
+  del propio contenedor — el healthcheck del `compose.yaml` generado por
+  `13-app-jpltag.sh`, y la prueba de login cuando `JPLTAG_SOLO_IPS=si` (ver
+  §0 y más arriba en esta sección) — rompiendo ambas.
+- `SECURE_HSTS_SECONDS` dejaría dos cabeceras `Strict-Transport-Security`
+  en la misma respuesta (la de HAProxy y la de Django). Los navegadores
+  solo procesan la primera (RFC 6797), así que no rompe nada, pero no
+  suma nada tampoco y es un lugar más donde la política podría
+  desincronizarse si algún día cambia en HAProxy.
+
+Si alguna vez deja de ser cierto (cambia la configuración de HAProxy, o la
+app queda expuesta sin pasar por él), hay que revisar esta decisión.

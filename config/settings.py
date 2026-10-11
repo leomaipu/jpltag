@@ -161,6 +161,10 @@ USE_TZ = True
 # ──────────────────────────────────────────────────────────────────────────
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Lección ya documentada en el servidor (Soporte Existencias/MaiReservas):
+# en True, un admin theme o un estático sin hash en el manifest hace que
+# /admin/ devuelva 500 en vez de solo omitir ese archivo.
+WHITENOISE_MANIFEST_STRICT = False
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

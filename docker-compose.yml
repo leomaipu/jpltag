@@ -1,0 +1,55 @@
+# Plantilla de despliegue — sigue el mismo patrón ya en uso para Soporte
+# Existencias y MaiReservas en maiproject.cl (ver DESPLIEGUE.md): puerto
+# publicado solo en 127.0.0.1 (HAProxy es la única puerta de entrada),
+# filesystem de solo lectura, sin capacidades extra, sin poder escalar
+# privilegios, y conectado a las redes de datos/apps que ya existen en el
+# servidor en vez de crear infraestructura nueva.
+
+services:
+  jpltag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jpltag:latest
+    container_name: jpltag
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # AJUSTAR el puerto: usar el próximo puerto libre en 127.0.0.1,
+      # siguiendo el mismo patrón que los otros backends ya publicados
+      # (ver /etc/haproxy/hosts.map y los backends existentes).
+      - "127.0.0.1:8042:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    volumes:
+      # Logos/sellos/firmas de cada Juzgado (nucleo.models.Juzgado) y las
+      # cartas/Excel/log generados por cada corrida (procesos.models);
+      # estos últimos traen RUT, domicilio y nombre del infractor — nunca
+      # se sirven por una URL pública, solo por la vista protegida de
+      # descarga (ver procesos/views.py).
+      - jpltag_media:/app/media
+      - jpltag_salidas:/app/salidas
+    networks:
+      - datos
+      - apps
+
+networks:
+  # Redes ya existentes en el servidor (PostgreSQL+PgBouncer+Valkey viven
+  # en "datos"; HAProxy alcanza los backends de todas las apps por "apps").
+  # No se crea infraestructura nueva — se reutiliza la ya documentada.
+  datos:
+    external: true
+    name: maipu-datos
+  apps:
+    external: true
+    name: maipu-apps
+
+volumes:
+  jpltag_media:
+  jpltag_salidas:

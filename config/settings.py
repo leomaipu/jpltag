@@ -198,6 +198,20 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Errores → GlitchTip (SDK de Sentry; nunca a Sentry directamente)
+#
+# Por defecto, el SDK de Sentry adjunta a cada error las variables locales
+# de cada marco del stack trace (include_local_variables) y hasta ~10 KB
+# del cuerpo de la request (max_request_body_size="medium"). Para esta app
+# eso es justo el dato que en todo el resto del código se trata como
+# sensible (RUT, domicilio, nombre del infractor — ver SALIDAS_ROOT más
+# arriba y nucleo.models.PerfilUsuario.tiene_acceso_a): una excepción
+# dentro de motor/lectura.py, motor/plantilla.py o procesos/views.py
+# fácilmente tiene esos datos en una variable local (la fila de la nómina,
+# el contexto de la carta, etc.). GlitchTip puede ser visible para gente
+# sin acceso a ningún Juzgado (quien administra errores.maiproject.cl para
+# las 3 apps), así que acá se desactiva esa captura explícitamente — un
+# error en GlitchTip debe alcanzar para diagnosticar dónde y qué tipo de
+# excepción, no para leer los datos de un infractor.
 # ──────────────────────────────────────────────────────────────────────────
 GLITCHTIP_DSN = env("GLITCHTIP_DSN", default="")
 if GLITCHTIP_DSN:
@@ -207,5 +221,8 @@ if GLITCHTIP_DSN:
     sentry_sdk.init(
         dsn=GLITCHTIP_DSN,
         integrations=[DjangoIntegration()],
+        environment="produccion" if not DEBUG else "desarrollo",
         send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
     )

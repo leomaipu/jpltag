@@ -140,12 +140,18 @@ cd ~/maiproject-scripts && sudo bash 13-app-jpltag.sh 2>&1 | tee resultado-13.tx
 Para publicar una versión nueva más adelante, se repite exactamente lo
 mismo con un `.tar.gz` nuevo — es idempotente, igual que sus hermanos.
 
-**Pendiente de confirmar con el Juzgado:** con `JPLTAG_SOLO_IPS=si` por
-defecto, solo se puede entrar desde las IPs de `/etc/haproxy/ips-admin.lst`.
-Si algún funcionario de los 3 Juzgados necesita entrar desde fuera de esa
-lista (por ejemplo, en teletrabajo), hay que agregar esa IP a la lista o
-correr el script con `JPLTAG_SOLO_IPS=no` (el login sigue protegiendo la
-app igual).
+**Política de acceso confirmada con Leonardo (11-oct-2026):** el sitio
+queda restringido (`JPLTAG_SOLO_IPS=si`, el default) a la red municipal
+más la IP de la casa de Leonardo — no se abre a Internet
+(`JPLTAG_SOLO_IPS=no`) ni se agrega ninguna otra IP de teletrabajo por
+ahora. En la práctica: la red municipal ya debería estar en
+`/etc/haproxy/ips-admin.lst` (la usan las otras apps); falta agregar ahí
+la IP de la casa de Leonardo — si es una IP residencial sin contrato fijo,
+puede cambiar con el tiempo, así que conviene que el equipo de
+infraestructura confirme si es fija o si hay que revisarla más adelante.
+Si algún día algún funcionario de los 3 Juzgados necesita entrar desde
+otro lugar (teletrabajo), esto hay que revisarlo de nuevo — no está
+cubierto por esta decisión.
 
 ## 1. Variables que de verdad lee `config/settings.py`
 
@@ -190,7 +196,21 @@ que esa variable queda sin usar a propósito; no hace falta borrarla.
 
 GlitchTip: crear el proyecto `jpltag` en `errores.maiproject.cl`, dejar el
 DSN en `/opt/maiproject/apps/jpltag/secretos/sentry_dsn` (600) y volver a
-ejecutar el script — lo recoge solo.
+ejecutar el script — lo recoge solo. `config/settings.py` ya configura el
+SDK (11-oct-2026) con `include_local_variables=False` y
+`max_request_body_size="never"`: por defecto el SDK de Sentry adjunta a
+cada error las variables locales del stack trace y parte del cuerpo de la
+request, y en esta app eso puede ser el RUT, domicilio o nombre de un
+infractor (una fila de la nómina, el contexto de una carta, etc. — ver el
+comentario junto a `sentry_sdk.init()`). GlitchTip puede quedar visible
+para gente sin acceso a ningún Juzgado (quien administra
+`errores.maiproject.cl` para las 3 apps), así que esos datos no deben
+llegar ahí — un error en GlitchTip debe alcanzar para saber dónde y qué
+tipo de excepción ocurrió, nunca para leer datos de un infractor. No
+probado contra una instancia de GlitchTip real desde este entorno de
+desarrollo (sin salida a `errores.maiproject.cl`, misma limitación de red
+que Docker Hub y mindicador.cl); sí se confirmó que `sentry_sdk.init()`
+acepta estas opciones y no bloquea el arranque con un DSN de prueba.
 
 ## 2. Qué deja publicado el script
 

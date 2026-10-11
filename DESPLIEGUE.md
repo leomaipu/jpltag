@@ -34,6 +34,20 @@ rotas no llega a reemplazar la versión publicada aunque alguien se
 salte este paso manual. Correrlas aquí primero sigue siendo más rápido
 (no hay que esperar a construir la imagen para enterarse).
 
+**Ojo:** correr `manage.py test` en el entorno de desarrollo local NO
+reemplaza construir la imagen. Ya pasó una vez (11-oct-2026): faltaban
+`Pillow` y `redis` en `requirements.in`, y las pruebas pasaron igual en
+desarrollo porque esos paquetes ya estaban instalados ahí por otra vía
+— `JPLTAG_PRUEBAS` los detectó porque instala en la imagen estrictamente
+lo que dice `requirements.txt`, nada más. Para repetir esa misma
+garantía antes de hacer commit, sin depender de poder construir la
+imagen de Docker (bloqueada en este entorno de desarrollo — ver sección
+6), conviene instalar `requirements.txt` en un entorno virtual limpio
+(`python -m venv` nuevo, sin nada más instalado) y correr ahí
+`manage.py check`, `manage.py migrate` y las pruebas — eso sí habría
+mostrado el `ImageFieldException`/`ModuleNotFoundError` que la imagen
+mostró.
+
 ## 0. El script de despliegue no vive en este repositorio
 
 `13-app-jpltag.sh` es un script de infraestructura del servidor, igual
@@ -307,4 +321,27 @@ código, sin necesidad de Docker:
 Lo único que falta probar es el `docker build` mismo (bajar la imagen
 base y armar las capas) y el script `13-app-jpltag.sh` completo contra
 el servidor real — eso ya depende del equipo, no de este entorno de
-desarrollo.
+desarrollo (se reintentó explícitamente, `docker build` sigue recibiendo
+403 de Docker Hub — bloqueo de política, no transitorio).
+
+**Hallazgo real de `JPLTAG_PRUEBAS` contra el servidor (11-oct-2026):**
+la primera corrida de la puerta de calidad frenó la publicación —
+`Pillow` y `redis` faltaban en `requirements.in`. `Pillow` lo necesita
+cualquier `ImageField` (logo/sello/firma de `Juzgado`) para que Django
+valide esos campos al migrar; `redis` lo necesita
+`django.core.cache.backends.redis.RedisCache` (se activa con
+`VALKEY_URL`, ver `config/settings.py`) para conectarse a Valkey. Nada
+de lo publicado se tocó: el script aborta antes de migrar o reemplazar
+el contenedor. `manage.py test` no lo había detectado porque, sin
+`Docker` disponible en este entorno de desarrollo, se venía corriendo
+contra el intérprete del sistema, donde `Pillow` ya estaba instalado
+por otra vía y las pruebas usan caché en memoria (sin `VALKEY_URL`) —
+exactamente el escenario que `JPLTAG_PRUEBAS` existe para atrapar, al
+instalar en la imagen estrictamente lo que dice `requirements.txt`. Sin
+poder reproducir un `docker build` aquí, se verificó el arreglo con el
+equivalente más cercano posible: un entorno virtual nuevo con
+`pip install --require-hashes -r requirements.txt` y nada más instalado
+— ahí `manage.py check`, `manage.py migrate` (confirma que los
+`ImageField` ya no fallan) y la conexión de `RedisCache` contra un
+Valkey/Redis real (`cache.set`/`cache.get` de ida y vuelta) funcionan,
+y la suite completa (52 pruebas) sigue en verde.

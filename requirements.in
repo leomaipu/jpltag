@@ -28,3 +28,19 @@ python-docx==1.2.0
 openpyxl==3.1.5
 pandas==3.0.5
 sentry-sdk==2.18.0
+# Los ImageField de Juzgado (logo, sello_judicial, firma — ver
+# nucleo/models.py) necesitan Pillow para que Django valide y procese
+# imágenes; sin esto, migrate falla al revisar esos campos. Se escapó
+# de requirements.in porque en el entorno de desarrollo Pillow ya
+# estaba instalado por otra vía, y manage.py test pasa igual con cache
+# en memoria — solo se notó al construir la imagen de verdad con
+# JPLTAG_PRUEBAS, que instala estrictamente lo que dice este archivo.
+Pillow==12.3.0
+# django.core.cache.backends.redis.RedisCache (ver config/settings.py,
+# se activa cuando hay VALKEY_URL) necesita este paquete para conectarse
+# — Valkey habla el protocolo de Redis, así que redis-py funciona igual.
+# Sin él, cualquier intento de iniciar sesión en el servidor habría
+# fallado (CACHES solo cae a LocMemCache cuando VALKEY_URL está vacía,
+# que nunca es el caso ahí). No se detectaba en manage.py test porque,
+# sin VALKEY_URL, las pruebas usan la caché en memoria.
+redis==8.1.0

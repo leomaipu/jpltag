@@ -6,10 +6,13 @@ VerImagenJuzgadoView y nucleo.models.PerfilUsuario.puede_editar_plantilla.
 
 import shutil
 import tempfile
+from datetime import date
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
+from motor.utm import ErrorConsultaUTM
 from nucleo.models import Rol
 
 from .fixtures import (
@@ -173,3 +176,65 @@ class PlantillaPropiaSeUsaAlGenerarTest(TestCase):
         doc = Document(io.BytesIO(contenido))
         texto_completo = "\n".join(p.text for p in doc.paragraphs)
         self.assertIn("MARCA DISTINTIVA DEL JUZGADO XYZ", texto_completo)
+
+
+@override_settings(MEDIA_ROOT=_TMP_MEDIA, SALIDAS_ROOT=_TMP_SALIDAS)
+class ActualizarUTMTest(TestCase):
+    """Módulo 4 (UTM automático) — ver motor/utm.py. Estas pruebas
+    reemplazan procesos.views.consultar_utm_vigente por un valor fabricado
+    en vez de llamar a mindicador.cl de verdad (ese sandbox no tiene
+    salida a internet; ver motor/tests/test_utm.py y DESPLIEGUE.md)."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_TMP_MEDIA, ignore_errors=True)
+        shutil.rmtree(_TMP_SALIDAS, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.juzgado = crear_juzgado(utm_valor=65000)
+
+    def test_juez_no_puede_actualizar_la_utm(self):
+        crear_usuario("jueza", rol=Rol.JUEZ, juzgado=self.juzgado)
+        ingresar(self.client, "jueza")
+        resp = self.client.post("/plantilla/utm/actualizar/", {"juzgado": self.juzgado.slug})
+        self.assertEqual(resp.status_code, 403)
+        self.juzgado.refresh_from_db()
+        self.assertEqual(self.juzgado.utm_valor, 65000)
+
+    @patch("procesos.views.consultar_utm_vigente")
+    def test_actualiza_el_valor_cuando_cambio(self, mock_consultar):
+        mock_consultar.return_value = {"valor": 72151, "fecha": date(2026, 10, 1), "fuente": "mindicador.cl"}
+        crear_usuario("secretaria", rol=Rol.SECRETARIO, juzgado=self.juzgado)
+        ingresar(self.client, "secretaria")
+        resp = self.client.post(
+            "/plantilla/utm/actualizar/", {"juzgado": self.juzgado.slug}, follow=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.juzgado.refresh_from_db()
+        self.assertEqual(self.juzgado.utm_valor, 72151)
+        self.assertContains(resp, "UTM actualizada")
+
+    @patch("procesos.views.consultar_utm_vigente")
+    def test_no_toca_nada_si_el_valor_ya_estaba_al_dia(self, mock_consultar):
+        mock_consultar.return_value = {"valor": 65000, "fecha": date(2026, 10, 1), "fuente": "mindicador.cl"}
+        crear_usuario("secretaria", rol=Rol.SECRETARIO, juzgado=self.juzgado)
+        ingresar(self.client, "secretaria")
+        resp = self.client.post(
+            "/plantilla/utm/actualizar/", {"juzgado": self.juzgado.slug}, follow=True,
+        )
+        self.juzgado.refresh_from_db()
+        self.assertEqual(self.juzgado.utm_valor, 65000)
+        self.assertContains(resp, "ya estaba al día")
+
+    @patch("procesos.views.consultar_utm_vigente")
+    def test_muestra_un_mensaje_si_la_consulta_falla(self, mock_consultar):
+        mock_consultar.side_effect = ErrorConsultaUTM("No se pudo conectar a mindicador.cl: sin red")
+        crear_usuario("secretaria", rol=Rol.SECRETARIO, juzgado=self.juzgado)
+        ingresar(self.client, "secretaria")
+        resp = self.client.post(
+            "/plantilla/utm/actualizar/", {"juzgado": self.juzgado.slug}, follow=True,
+        )
+        self.juzgado.refresh_from_db()
+        self.assertEqual(self.juzgado.utm_valor, 65000)
+        self.assertContains(resp, "No se pudo consultar")

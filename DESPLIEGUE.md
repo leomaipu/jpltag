@@ -344,3 +344,21 @@ equivalente más cercano posible: un entorno virtual nuevo con
 `ImageField` ya no fallan) y la conexión de `RedisCache` contra un
 Valkey/Redis real (`cache.set`/`cache.get` de ida y vuelta) funcionan,
 y la suite completa (52 pruebas) sigue en verde.
+
+**Módulo 4 (UTM automático, 11-oct-2026) — misma limitación de red, otro
+destino:** el botón "Verificar valor UTM" de `/plantilla/` consulta
+`https://mindicador.cl/api/utm` (ver `motor/utm.py`; se eligió esa API en
+vez de la oficial de la CMF porque esta última exige una API key que no
+se tramitó). Igual que con Docker Hub, este entorno de desarrollo
+tampoco tiene salida a `mindicador.cl` (`urllib.request.urlopen` contra
+esa URL devuelve el mismo 403 de política, no transitorio), así que
+**no se pudo probar la consulta real de punta a punta desde aquí**. Las
+pruebas (`motor/tests/test_utm.py` y `procesos/tests/test_plantilla.py::ActualizarUTMTest`)
+reemplazan esa llamada por una respuesta fabricada. Lo que falta
+confirmar contra el servidor real es que el contenedor de producción sí
+pueda llegar a `mindicador.cl` por HTTPS (no hay ninguna razón para
+pensar que no, a diferencia del bloqueo de Docker Hub que es específico
+de este entorno de desarrollo, pero no se verificó); si el botón muestra
+"No se pudo consultar el valor UTM vigente" en el servidor, el primer
+sospechoso es la salida a internet del contenedor (firewall/proxy), no
+el código.

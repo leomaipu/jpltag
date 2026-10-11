@@ -23,12 +23,15 @@ class Juzgado(models.Model):
     dia_desde = models.PositiveSmallIntegerField(default=1)
     dia_hasta = models.PositiveSmallIntegerField(default=10)
 
-    # UTM vigente configurada (Módulo 4 de la propuesta la compara contra la
-    # API de la CMF y la actualiza con un clic — todavía no implementado acá)
+    # UTM vigente configurada (Módulo 4 de la propuesta) — se puede dejar
+    # fija acá (/admin/) o consultarla con un clic desde /plantilla/, que
+    # la compara contra mindicador.cl y la actualiza si cambió (ver
+    # motor/utm.py — no la propia API de la CMF, que exige una API key
+    # que no se tramitó; decisión confirmada con Leonardo el 11-oct-2026).
     utm_valor = models.PositiveIntegerField(
         default=0,
-        help_text="Valor UTM configurado para este juzgado. Se actualiza "
-                   "manualmente hasta implementar el Módulo 4 (UTM automático).",
+        help_text="Valor UTM configurado para este juzgado. Se puede actualizar a mano "
+                   "o con el botón \"Verificar valor UTM\" en /plantilla/.",
     )
 
     max_causas_por_pagina = models.PositiveSmallIntegerField(default=20)

@@ -67,6 +67,21 @@
 </form>
 
 <div class="tarjeta">
+  <h2>Valor UTM</h2>
+  <p>Valor configurado actualmente: <strong>{{ utm_actual }}</strong></p>
+  <form method="post" action="{% url 'procesos:actualizar_utm' %}">
+    {% csrf_token %}
+    <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+    <button type="submit" class="boton">Verificar valor UTM</button>
+  </form>
+  <p class="ayuda" style="margin-top:.5rem;">
+    Consulta el valor UTM vigente en mindicador.cl y lo actualiza acá si
+    cambió. No se actualiza solo: hay que apretar el botón cada vez que
+    se quiera revisar.
+  </p>
+</div>
+
+<div class="tarjeta">
   <h2>Sobre la plantilla Word</h2>
   <p class="ayuda">
     La plantilla define el diseño completo de la carta: logo, colores,

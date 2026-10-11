@@ -67,6 +67,19 @@ suben desde la misma pantalla — se validan como imagen real (Pillow, ver
 `MEDIA_URL` se sirva por HTTP (en producción no se sirve, ver
 DESPLIEGUE.md).
 
+### UTM automático (Módulo 4)
+
+El botón "Verificar valor UTM" en `/plantilla/` consulta el valor UTM
+vigente en [mindicador.cl](https://mindicador.cl/api/utm) (`motor/utm.py`)
+y actualiza `Juzgado.utm_valor` si cambió — nunca en segundo plano, solo
+al apretar el botón, porque afecta el monto de cada multa en la carta.
+Se eligió mindicador.cl (pública, gratuita, sin registro) en vez de la
+API oficial de la CMF porque esta última exige una API key que no se
+tramitó; si en algún momento se consigue, `motor/utm.py` es el único
+archivo que habría que tocar. El valor también se puede seguir editando
+a mano desde `/admin/`. Ver la nota sobre la salida a internet del
+servidor en DESPLIEGUE.md.
+
 ## Roles y permisos
 
 | Rol | Plantilla | Agenda | Generar cartas | Gestionar usuarios |

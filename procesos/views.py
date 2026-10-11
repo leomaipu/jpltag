@@ -26,11 +26,13 @@ from django.views import View
 
 from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
 from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
+from motor.cartas import fmt_pesos
 from motor.fechas_en_letras import MESES, fecha_en_letras
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
 from motor.plantilla import generar_cartas_certificadas
 from motor.reportes import escribir_log_errores, exportar_duplicados
+from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
 from nucleo.models import BloqueHorario, Juzgado
 
 from .forms import BloqueHorarioForm, PlantillaJuzgadoForm, SubirNominaForm
@@ -397,6 +399,7 @@ class PlantillaView(PuedeEditarPlantillaMixin, View):
         return render(request, "procesos/plantilla.html", {
             "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
             "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
+            "utm_actual": fmt_pesos(juzgado.utm_valor),
         })
 
     def post(self, request):
@@ -415,6 +418,7 @@ class PlantillaView(PuedeEditarPlantillaMixin, View):
         return render(request, "procesos/plantilla.html", {
             "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
             "plantilla_nombre": Path(juzgado.plantilla_word.name).name if juzgado.plantilla_word else None,
+            "utm_actual": fmt_pesos(juzgado.utm_valor),
         })
 
 
@@ -441,3 +445,44 @@ class VerImagenJuzgadoView(PuedeEditarPlantillaMixin, View):
         if not archivo:
             raise Http404("Este juzgado todavía no tiene esa imagen cargada.")
         return FileResponse(open(archivo.path, "rb"))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# UTM vigente (Módulo 4 — ver motor/utm.py para la fuente y por qué)
+# ══════════════════════════════════════════════════════════════════════
+
+class ActualizarUTMView(PuedeEditarPlantillaMixin, View):
+    """Un solo clic consulta el valor UTM vigente y lo deja guardado si
+    cambió — nunca en segundo plano ni al cargar la página: afecta el
+    monto de cada multa en la carta, así que lo dispara a propósito
+    quien tiene permiso para editar la configuración del Juzgado."""
+
+    def post(self, request):
+        perfil = request.user.perfil
+        juzgado = _juzgado_actual(request, perfil)
+        if juzgado is None:
+            messages.error(request, "No hay ningún juzgado configurado todavía.")
+            return redirect("procesos:panel")
+
+        try:
+            info = consultar_utm_vigente()
+        except ErrorConsultaUTM as exc:
+            messages.error(request, f"No se pudo consultar el valor UTM vigente: {exc}")
+        else:
+            anterior = juzgado.utm_valor
+            periodo = f"{MESES[info['fecha'].month - 1]} {info['fecha'].year}"
+            if info["valor"] == anterior:
+                messages.success(
+                    request,
+                    f"El valor UTM ya estaba al día: {fmt_pesos(anterior)} "
+                    f"(vigente {periodo}, fuente: {info['fuente']}).",
+                )
+            else:
+                juzgado.utm_valor = info["valor"]
+                juzgado.save(update_fields=["utm_valor"])
+                messages.success(
+                    request,
+                    f"UTM actualizada de {fmt_pesos(anterior)} a {fmt_pesos(info['valor'])} "
+                    f"(vigente {periodo}, fuente: {info['fuente']}).",
+                )
+        return redirect(f"{reverse('procesos:plantilla')}?juzgado={juzgado.slug}")

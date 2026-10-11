@@ -1,19 +1,21 @@
 # Dependencias de primer nivel de jpltag. El archivo que de verdad se
 # instala es requirements.txt (generado de este con pip-compile
-# --generate-hashes, política de la plataforma maiproject.cl — ver
-# informe de implementación del servidor, sección "Reglas para el
-# equipo de desarrollo"). Para regenerarlo tras cambiar una versión acá:
+# --generate-hashes --strip-extras, mismo comando que usa Soporte
+# Existencias, la app hermana ya publicada en maiproject.cl). Para
+# regenerarlo tras cambiar una versión acá:
 #
-#   pip-compile --generate-hashes --output-file=requirements.txt requirements.in
+#   pip-compile --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
 #   pip-audit -r requirements.txt
 #
 # Versiones probadas y funcionando en este repo (ver commits de Fase 1).
+#
+# CSP: no se usa el paquete django-csp — Django 6.1 trae su propio
+# middleware de Content-Security-Policy (ver config/settings.py).
 Django==6.1.1
 gunicorn==26.2.0
 psycopg[binary]==3.2.3
 django-environ==0.14.0
 django-axes==8.3.1
-django-csp==3.8
 whitenoise==6.8.2
 python-docx==1.2.0
 openpyxl==3.1.5

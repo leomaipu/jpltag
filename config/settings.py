@@ -61,7 +61,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "csp.middleware.CSPMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "axes.middleware.AxesMiddleware",
 ]
 
@@ -135,17 +135,20 @@ AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 # ──────────────────────────────────────────────────────────────────────────
 # Seguridad de navegación: sin CDN, todo autoalojado (regla de la plataforma)
 # ──────────────────────────────────────────────────────────────────────────
-CONTENT_SECURITY_POLICY = {
-    "DIRECTIVES": {
-        "default-src": ["'self'"],
-        "script-src": ["'self'"],
-        "style-src": ["'self'"],
-        "font-src": ["'self'"],
-        "img-src": ["'self'", "data:"],
-        "object-src": ["'none'"],
-        "base-uri": ["'self'"],
-        "frame-ancestors": ["'none'"],
-    }
+# CSP nativa de Django 6.1 (django.middleware.csp.ContentSecurityPolicyMiddleware),
+# no el paquete django-csp: así lo confirma el informe de Soporte Existencias
+# ("CSP nativa de Django 6.1"), que es la app hermana ya publicada en el mismo
+# servidor. El formato es un dict plano {directiva: [valores]}, sin el
+# envoltorio "DIRECTIVES" que usa django-csp.
+SECURE_CSP = {
+    "default-src": ["'self'"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'"],
+    "font-src": ["'self'"],
+    "img-src": ["'self'", "data:"],
+    "object-src": ["'none'"],
+    "base-uri": ["'self'"],
+    "frame-ancestors": ["'none'"],
 }
 
 # ──────────────────────────────────────────────────────────────────────────

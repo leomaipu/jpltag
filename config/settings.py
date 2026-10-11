@@ -30,7 +30,14 @@ environ.Env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="clave-insegura-solo-para-desarrollo-local")
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
-CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in ALLOWED_HOSTS if h not in ("localhost", "127.0.0.1")]
+# Igual que Soporte Existencias: se puede fijar explícitamente con
+# DJANGO_CSRF_TRUSTED_ORIGINS (lista separada por comas, con esquema,
+# ej. "https://jpltag.maiproject.cl"). Sin esa variable (desarrollo local),
+# se calcula sola a partir de ALLOWED_HOSTS, igual que antes.
+CSRF_TRUSTED_ORIGINS = env.list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    default=[f"https://{h}" for h in ALLOWED_HOSTS if h not in ("localhost", "127.0.0.1")],
+)
 
 # HAProxy termina TLS y reenvía esta cabecera (ver sección 10 del informe)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

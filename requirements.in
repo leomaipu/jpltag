@@ -12,6 +12,13 @@
 # CSP: no se usa el paquete django-csp — Django 6.1 trae su propio
 # middleware de Content-Security-Policy (ver config/settings.py).
 Django==6.1.1
+# python:3.13-slim (base del Dockerfile) no trae el paquete de sistema
+# tzdata, y la imagen no instala nada por apt — sin esto, USE_TZ=True con
+# TIME_ZONE="America/Santiago" fallaría al primer uso con
+# ZoneInfoNotFoundError. Verificado en este repo simulando un contenedor
+# sin tzdata del sistema (zoneinfo.reset_tzpath(to=())): con este paquete
+# de pip, zoneinfo resuelve la zona igual.
+tzdata==2026.5
 gunicorn==26.2.0
 psycopg[binary]==3.2.3
 django-environ==0.14.0

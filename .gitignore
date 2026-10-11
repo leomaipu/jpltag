@@ -1,0 +1,27 @@
+# Secretos y configuración local — NUNCA se suben (repo público)
+.env
+secretos/
+*.env
+apikeys.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Django
+staticfiles/
+media/
+db.sqlite3
+*.log
+
+# Archivos de trabajo (nóminas reales, cartas generadas) — nunca al repo
+/datos_prueba/*.xlsx
+/salidas/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store

@@ -243,6 +243,12 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   gunicorn y 190 s en HAProxy hacia jpltag (los 30/60 s por defecto
   cortarían a mitad de un Excel grande), y las subidas a disco
   (`TMPDIR=/app/tmp`) en vez de RAM.
+- Los estáticos de la interfaz (CSS, JS, fuente Rubik, logo y escudo en SVG)
+  salen de la propia app vía WhiteNoise, con la CSP `'self'` de
+  `config/settings.py`: el reverse proxy no necesita servir `/static/` ni
+  habilitar ningún dominio externo. `collectstatic` ya corre al construir la
+  imagen (`Dockerfile`); si en el servidor la pantalla se ve sin estilos,
+  revisar primero que esa etapa no falló.
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):
   `sudo GUNICORN_WORKERS=5 bash 13-app-jpltag.sh`.
 

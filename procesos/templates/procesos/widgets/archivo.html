@@ -1,0 +1,4 @@
+<input type="file" name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>
+{% if widget.is_initial %}
+<label class="quitar" for="{{ widget.checkbox_id }}"><input type="checkbox" name="{{ widget.checkbox_name }}" id="{{ widget.checkbox_id }}"{% if widget.attrs.disabled %} disabled{% endif %}> {{ widget.clear_checkbox_label }}</label>
+{% endif %}

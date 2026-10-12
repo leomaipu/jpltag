@@ -219,7 +219,7 @@ class PlantillasPorTipoTest(TestCase):
         for tipo in ("CITACION", "CITACION_SENTENCIA", "SENTENCIA"):
             self.assertContains(resp, f"/plantilla/descargar/{self.juzgado.pk}/{tipo}/")
             self.assertContains(resp, f'name="plantilla_{tipo.lower()}"')
-        self.assertContains(resp, "Usando la plantilla por defecto")
+        self.assertContains(resp, "Por defecto")
 
 
 class CapacidadPorPaginaTest(TestCase):

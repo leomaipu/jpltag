@@ -1,48 +1,73 @@
 {% extends "procesos/base.html" %}
+{% load static diseno %}
 {% block titulo %}Agenda{% endblock %}
+{% block marca %}Agenda{% endblock %}
 {% block contenido %}
-<h1>Agenda de audiencias{% if juzgado %} — {{ juzgado.nombre }}{% endif %}</h1>
+<header class="cab">
+  <h1>Agenda de audiencias</h1>
+  <p>{% if juzgado %}{{ juzgado.nombre }}. {% endif %}Cada citación toma un cupo del primer bloque con espacio.</p>
+  <div class="tribarra"><i></i></div>
+</header>
 
 {% if juzgados|length > 1 %}
-<form method="get" class="tarjeta">
-  <label for="juzgado">Juzgado</label>
-  <select name="juzgado" id="juzgado" onchange="this.form.submit()">
-    {% for j in juzgados %}
-    <option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>
-    {% endfor %}
-  </select>
+<form method="get" class="selector">
+  <div class="campo">
+    <label for="juzgado">Juzgado</label>
+    <select name="juzgado" id="juzgado" data-autoenviar>
+      {% for j in juzgados %}<option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Cambiar</button>
 </form>
 {% endif %}
 
 {% if form %}
-<form method="post" class="tarjeta">
-  {% csrf_token %}
-  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
-  {% for campo in form %}
-  <p>
-    <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
-    {{ campo }}
-    {{ campo.errors }}
-  </p>
-  {% endfor %}
-  <button type="submit" class="boton">Agregar bloque</button>
-</form>
+<details class="avanzado" {% if form.errors %}open{% endif %}>
+  <summary>Agregar un bloque de horario</summary>
+  <div class="avanzado__cuerpo">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+      {% for campo in form %}
+      <div class="campo">
+        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+        {{ campo }}
+        {{ campo.errors }}
+      </div>
+      {% endfor %}
+      <div class="acciones"><button type="submit" class="btn btn--azul">Agregar bloque</button></div>
+    </form>
+  </div>
+</details>
 {% endif %}
 
-<div class="tarjeta">
+<section class="seccion" aria-label="Bloques cargados">
   {% if bloques %}
-  <table>
-    <tr><th>Fecha</th><th>Hora</th><th>Cupos</th></tr>
-    {% for b in bloques %}
-    <tr>
-      <td>{{ b.fecha|date:"d-m-Y" }}</td>
-      <td>{{ b.hora|time:"H:i" }}</td>
-      <td>{{ b.cupos_usados }}/{{ b.cupos_totales }}</td>
-    </tr>
+  <div class="dias">
+    {% regroup bloques by fecha as por_dia %}
+    {% for dia in por_dia %}
+    <article class="dia">
+      <div class="dia__fecha">
+        <span class="dia__numero">{{ dia.grouper|date:"j" }}</span>
+        <span class="dia__mes">{{ dia.grouper|date:"M Y"|lower }}</span>
+        <span class="dia__sem">{{ dia.grouper|date:"D"|lower }}</span>
+      </div>
+      <div class="horas">
+        {% for b in dia.list %}
+        <div class="hora">
+          <span class="hora__hora">{{ b.hora|time:"H:i" }}</span>
+          {% cupos b %}
+          <span class="hora__cupos">{{ b.cupos_usados }} de {{ b.cupos_totales }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
     {% endfor %}
-  </table>
+  </div>
   {% else %}
-  <p class="ayuda">No hay bloques de horario cargados todavía.</p>
+  <div class="bloque vacio">
+    <p>No hay bloques cargados. Agrega la fecha, la hora y los cupos de cada audiencia; las citaciones los ocupan en orden.</p>
+  </div>
   {% endif %}
-</div>
+</section>
 {% endblock %}

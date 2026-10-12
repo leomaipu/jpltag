@@ -1,0 +1,10 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}No encontrada{% endblock %}
+{% block contenido %}
+<section class="aviso-pagina">
+  <p class="aviso-pagina__codigo" aria-hidden="true">404</p>
+  <h1>No encontramos esta página</h1>
+  <p>El enlace puede estar desactualizado, o el archivo ya no está disponible.</p>
+  <a class="btn btn--azul" href="{% url 'procesos:panel' %}">Volver al inicio</a>
+</section>
+{% endblock %}

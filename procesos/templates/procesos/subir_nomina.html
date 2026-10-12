@@ -1,41 +1,118 @@
 {% extends "procesos/base.html" %}
-{% block titulo %}Subir nómina{% endblock %}
+{% load static %}
+{% block titulo %}Generar cartas{% endblock %}
+{% block marca %}Cartas{% endblock %}
 {% block contenido %}
-<h1>Subir nómina y generar cartas — {{ juzgado.nombre }}</h1>
+<header class="cab">
+  <h1>Generar cartas</h1>
+  <p>{{ juzgado.nombre }}. Todas las infracciones de una patente en el mes salen en una sola carta.</p>
+  <div class="tribarra"><i></i></div>
+</header>
 
 {% if juzgados|length > 1 %}
-<form method="get" class="tarjeta">
-  <label for="juzgado">Juzgado</label>
-  <select name="juzgado" id="juzgado" onchange="this.form.submit()">
-    {% for j in juzgados %}
-    <option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>
-    {% endfor %}
-  </select>
+<form method="get" class="selector">
+  <div class="campo">
+    <label for="juzgado">Juzgado</label>
+    <select name="juzgado" id="juzgado" data-autoenviar>
+      {% for j in juzgados %}<option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Cambiar</button>
 </form>
 {% endif %}
 
-<form method="post" enctype="multipart/form-data" class="tarjeta">
+<form method="post" enctype="multipart/form-data" class="formulario-ancho" data-procesa novalidate>
   {% csrf_token %}
   <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
-  {{ form.non_field_errors }}
-  {% for campo in form %}
-  <p>
-    <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
-    {{ campo }}
-    {% if campo.help_text %}<div class="ayuda">{{ campo.help_text }}</div>{% endif %}
-    {{ campo.errors }}
-  </p>
-  {% endfor %}
-  <button type="submit" class="boton">Generar cartas</button>
-</form>
+  {% include "procesos/_errores.html" with archivo_aviso=True %}
 
-<p class="ayuda">
-  Se generan las cartas de las patentes de este juzgado (infracciones de
-  los días {{ juzgado.dia_desde }} a {{ juzgado.dia_hasta }} del mes
-  predominante de la nómina), agrupando TODAS las infracciones de cada
-  patente en una sola carta — así cada infractor recibe una sola
-  notificación al mes, aunque tenga varias multas. Las cartas de citación
-  asignan fecha y hora de audiencia desde la agenda del juzgado; las de
-  sentencia no usan la agenda.
-</p>
+  <div class="pasos">
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Nómina del mes<small>El Excel que entrega la DAF, con todas las infracciones.</small></h2>
+      <div class="campo">
+        <div class="soltar">
+          <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#subir"/></svg>
+          <span class="soltar__titulo" data-inicial="Arrastra el Excel aquí o elígelo desde tu equipo">Arrastra el Excel aquí o elígelo desde tu equipo</span>
+          <span class="soltar__nombre" hidden></span>
+          <label class="solo-lectores" for="{{ form.nomina.id_for_label }}">Nómina del mes (.xlsx)</label>
+          {{ form.nomina }}
+        </div>
+        {{ form.nomina.errors }}
+      </div>
+    </section>
+
+    <section class="paso bloque">
+      <h2 class="seccion__titulo" id="tipo-titulo">Tipo de carta<small>Cada tipo usa la plantilla Word de este juzgado.</small></h2>
+      <div class="opciones tarjetas-tipo" role="radiogroup" aria-labelledby="tipo-titulo">
+        {% for radio in form.tipo_carta %}
+        <label class="opcion" for="{{ radio.id_for_label }}">
+          {{ radio.tag }}
+          <span class="opcion__titulo">{{ radio.choice_label }}</span>
+          {% if radio.data.value == "CITACION" %}
+          <span class="opcion__texto">Cita al infractor a una audiencia.</span>
+          <span class="opcion__marcas"><span class="chip">Usa la agenda</span></span>
+          {% elif radio.data.value == "CITACION_SENTENCIA" %}
+          <span class="opcion__texto">Cita a audiencia y avisa que, si no concurre, queda condenado.</span>
+          <span class="opcion__marcas"><span class="chip">Usa la agenda</span></span>
+          {% else %}
+          <span class="opcion__texto">Notifica la sentencia ya dictada.</span>
+          <span class="opcion__marcas"><span class="chip">Sin agenda</span><span class="chip">Pide la fecha</span></span>
+          {% endif %}
+        </label>
+        {% endfor %}
+      </div>
+      {{ form.tipo_carta.errors }}
+      <div class="campo solo-sentencia">
+        <label for="{{ form.fecha_audiencia.id_for_label }}">Fecha de la sentencia</label>
+        {{ form.fecha_audiencia }}
+        <span class="campo__ayuda" id="{{ form.fecha_audiencia.auto_id }}_helptext">{{ form.fecha_audiencia.help_text }}</span>
+        {{ form.fecha_audiencia.errors }}
+      </div>
+    </section>
+
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Quién firma</h2>
+      <div class="campo">
+        <label for="{{ form.nombre_firmante.id_for_label }}">Nombre</label>
+        {{ form.nombre_firmante }}
+        {{ form.nombre_firmante.errors }}
+      </div>
+      <div class="campo">
+        <label for="{{ form.cargo_firma.id_for_label }}">Cargo</label>
+        {{ form.cargo_firma }}
+        {{ form.cargo_firma.errors }}
+      </div>
+    </section>
+
+    <details class="avanzado" {% if form.tipo_causas.errors or form.n_cartas_paquete.errors %}open{% endif %}>
+      <summary>Opciones adicionales</summary>
+      <div class="avanzado__cuerpo">
+        <div class="campo">
+          <label for="{{ form.tipo_causas.id_for_label }}">Tabla de multas por tipo de causa</label>
+          {{ form.tipo_causas }}
+          <span class="campo__ayuda" id="{{ form.tipo_causas.auto_id }}_helptext">{{ form.tipo_causas.help_text }}</span>
+          {{ form.tipo_causas.errors }}
+        </div>
+        <div class="campo">
+          <label for="{{ form.n_cartas_paquete.id_for_label }}">Cartas por paquete</label>
+          {{ form.n_cartas_paquete }}
+          <span class="campo__ayuda" id="{{ form.n_cartas_paquete.auto_id }}_helptext">{{ form.n_cartas_paquete.help_text }}</span>
+          {{ form.n_cartas_paquete.errors }}
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="bloque procesando" role="status" tabindex="-1">
+    <h2>Generando las cartas</h2>
+    <p class="texto-suave">Con una nómina grande puede tardar hasta 3 minutos. Mantén esta pestaña abierta: al terminar verás los archivos.</p>
+    <div class="barra-espera" aria-hidden="true"></div>
+    <button type="button" class="btn btn--chico procesando__cancelar" data-cancelar>Dejar de esperar</button>
+    <p class="campo__ayuda mt">Si dejas de esperar, revisa el Inicio antes de volver a enviar: la generación puede haber terminado y no conviene duplicarla.</p>
+  </div>
+
+  <div class="acciones acciones--fija">
+    <button type="submit" class="btn btn--primario">Generar cartas</button>
+  </div>
+</form>
 {% endblock %}

@@ -1,0 +1,19 @@
+{% load static %}
+{% with actual=request.resolver_match.url_name %}
+<a href="{% url 'procesos:panel' %}" {% if actual == 'panel' %}aria-current="page"{% endif %}>
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#inicio"/></svg><span>Inicio</span>
+</a>
+{% if user.perfil.puede_generar_cartas %}
+<a href="{% url 'procesos:subir_nomina' %}" {% if actual == 'subir_nomina' or actual == 'resultado' %}aria-current="page"{% endif %}>
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#cartas"/></svg><span>Cartas</span>
+</a>
+{% endif %}
+<a href="{% url 'procesos:agenda' %}" {% if actual == 'agenda' %}aria-current="page"{% endif %}>
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg><span>Agenda</span>
+</a>
+{% if user.perfil.puede_editar_plantilla %}
+<a href="{% url 'procesos:plantilla' %}" {% if actual == 'plantilla' %}aria-current="page"{% endif %}>
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#plantilla"/></svg><span>Plantillas</span>
+</a>
+{% endif %}
+{% endwith %}

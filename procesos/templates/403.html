@@ -1,0 +1,10 @@
+{% extends "procesos/base.html" %}
+{% block titulo %}Sin acceso{% endblock %}
+{% block contenido %}
+<section class="aviso-pagina">
+  <p class="aviso-pagina__codigo" aria-hidden="true">403</p>
+  <h1>No tienes acceso a esta página</h1>
+  <p>{% if exception %}{{ exception }}{% else %}Tu rol o tu juzgado no tienen permiso para ver esto.{% endif %}</p>
+  <a class="btn btn--azul" href="{% url 'procesos:panel' %}">Volver al inicio</a>
+</section>
+{% endblock %}

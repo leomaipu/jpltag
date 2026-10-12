@@ -1,0 +1,10 @@
+{% if form.errors %}
+<div class="errores" id="errores" role="alert" tabindex="-1" data-enfocar>
+  <h2>Revisa estos datos antes de continuar</h2>
+  <ul>
+    {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+    {% for campo in form %}{% if campo.errors %}<li><a href="#{{ campo.id_for_label }}">{{ campo.label }}</a>: {{ campo.errors.0 }}</li>{% endif %}{% endfor %}
+  </ul>
+  {% if archivo_aviso and not form.nomina.errors %}<p class="campo__ayuda mt">El navegador no conserva los archivos elegidos: vuelve a elegirlos antes de enviar.</p>{% endif %}
+</div>
+{% endif %}

@@ -1,20 +1,50 @@
 {% extends "procesos/base.html" %}
+{% load static %}
 {% block titulo %}Ingresar{% endblock %}
-{% block contenido %}
-<div class="tarjeta" style="max-width:380px;margin:3rem auto;">
-  <h1>Ingresar</h1>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.non_field_errors }}
-    <p>
-      <label for="{{ form.username.id_for_label }}">Usuario</label>
-      {{ form.username }}
+{% block cuerpo %}
+<div class="ingreso">
+  <div class="ingreso__lado">
+    <img class="ingreso__logo" src="{% static 'procesos/img/logo-maipu.svg' %}" alt="Municipalidad de Maipú, juntos avanzamos">
+    <div>
+      <h1 class="ingreso__titulo">Notificaciones TAG de los Juzgados de Policía Local</h1>
+      <div class="tribarra"><i></i></div>
+    </div>
+    <main id="contenido">
+      <form class="bloque" method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="campo" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="campo">
+          <label for="{{ form.username.id_for_label }}">Usuario</label>
+          {{ form.username }}
+        </div>
+        <div class="campo">
+          <label for="{{ form.password.id_for_label }}">Clave</label>
+          {{ form.password }}
+        </div>
+        <div class="acciones">
+          <button type="submit" class="btn btn--primario btn--bloque">Ingresar</button>
+        </div>
+      </form>
+    </main>
+    <p class="acceso-nota">
+      <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#candado"/></svg>
+      <span>Tras 5 intentos fallidos se bloquea el acceso por 30 minutos. Si no puedes ingresar, pide ayuda a un Administrador.</span>
     </p>
-    <p>
-      <label for="{{ form.password.id_for_label }}">Clave</label>
-      {{ form.password }}
-    </p>
-    <button type="submit" class="boton">Ingresar</button>
-  </form>
+  </div>
+
+  <section class="ingreso__escena" aria-label="Qué hace jpltag">
+    <h2>Una carta por patente, con todas sus infracciones del mes</h2>
+    <p>Quien tiene varias multas recibe una sola notificación, con cada infracción en su propia fila.</p>
+    <div class="hoja" aria-hidden="true">
+      <span class="hoja__patente">ABCD12</span>
+      <ul>
+        <li><span>02/10/2026, 06:49</span><span>1 UTM</span></li>
+        <li><span>02/10/2026, 07:22</span><span>1 UTM</span></li>
+        <li><span>03/10/2026, 22:17</span><span>1 UTM</span></li>
+      </ul>
+      <p class="hoja__pie"><span>3 infracciones</span><span>1 carta</span></p>
+    </div>
+    <p class="texto-chico">Ejemplo con datos ficticios.</p>
+  </section>
 </div>
 {% endblock %}

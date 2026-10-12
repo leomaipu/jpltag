@@ -1,7 +1,40 @@
 from django import forms
+from django.contrib.auth.forms import AuthenticationForm
 
 from motor.plantilla import validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta
+
+
+class IngresarForm(AuthenticationForm):
+    """Mismos textos que el resto de la interfaz (tú, español de Chile)."""
+
+    error_messages = {
+        "invalid_login": "El usuario o la clave no coinciden. Revisa los datos e inténtalo de nuevo.",
+        "inactive": "Esta cuenta está desactivada. Pide ayuda a un Administrador.",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].error_messages["required"] = "Escribe tu usuario."
+        self.fields["password"].error_messages["required"] = "Escribe tu clave."
+
+
+MENSAJES_ARCHIVO = {
+    "invalid_image": "Ese archivo no es una imagen válida. Sube un PNG o JPG.",
+    "invalid": "El archivo no es válido. Elige otro.",
+    "missing": "No se recibió el archivo. Vuelve a elegirlo.",
+    "empty": "El archivo está vacío.",
+    "contradiction": "Elige un archivo nuevo o marca quitar el actual, no ambas cosas.",
+}
+
+
+class ArchivoWidget(forms.ClearableFileInput):
+    """Campo de archivo sin el enlace "Actualmente: …" de Django (apuntaría
+    a MEDIA_URL, que no se sirve por HTTP: ver DESPLIEGUE.md) y con el
+    "Quitar" en palabras de esta app."""
+
+    template_name = "procesos/widgets/archivo.html"
+    clear_checkbox_label = "Quitar el archivo cargado"
 
 
 CARGOS_FIRMA = [
@@ -18,27 +51,24 @@ class SubirNominaForm(forms.Form):
         choices=TipoCarta.choices,
         initial=TipoCarta.CITACION,
         widget=forms.RadioSelect,
-        help_text=(
-            "Citación: cita a la audiencia. Citación y sentencia: cita y avisa que, "
-            "si no concurre, queda condenado. Sentencia: notifica la sentencia ya dictada."
-        ),
     )
     fecha_audiencia = forms.DateField(
         label="Fecha de la sentencia", required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
-        help_text="Solo para cartas de Sentencia: la fecha que se escribe en la carta.",
+        help_text="Se escribe en cada carta. Una sola fecha por tanda.",
     )
     nomina = forms.FileField(
         label="Nómina del mes (.xlsx)",
-        help_text="El Excel con las infracciones del mes, tal como lo entrega la DAF.",
+        error_messages={"required": "Elige el Excel de la nómina del mes."},
     )
     tipo_causas = forms.FileField(
-        label="Tabla de multas por tipo de causa (opcional)",
+        label="Tabla de multas por tipo de causa",
         required=False,
-        help_text="tipo_causas.xlsx — si no se adjunta, se usa 1 UTM fija para todas las causas.",
+        help_text="Opcional. Sin ella, todas las causas cuentan 1 UTM.",
     )
     nombre_firmante = forms.CharField(
         label="Nombre de quien firma", max_length=150, required=False,
+        error_messages={"max_length": "El nombre es demasiado largo (máximo 150 letras)."},
     )
     cargo_firma = forms.ChoiceField(
         label="Cargo de quien firma",
@@ -46,9 +76,13 @@ class SubirNominaForm(forms.Form):
         required=False,
     )
     n_cartas_paquete = forms.IntegerField(
-        label="Cartas por paquete (0 = todas en 1 solo archivo)",
+        label="Cartas por paquete",
         min_value=0, required=False, initial=0,
-        help_text="Para repartir la impresión en tandas, ej. 100 cartas por documento.",
+        error_messages={
+            "min_value": "Escribe 0 o un número mayor.",
+            "invalid": "Escribe un número entero, por ejemplo 100.",
+        },
+        help_text="0 deja todas en un solo archivo. Un número mayor reparte la impresión en tandas.",
     )
 
     def _validar_excel(self, archivo):
@@ -88,6 +122,18 @@ class PlantillaJuzgadoForm(forms.ModelForm):
             "logo", "sello_judicial", "firma",
             "plantilla_citacion", "plantilla_citacion_sentencia", "plantilla_sentencia",
         ]
+        widgets = {
+            campo: ArchivoWidget() for campo in (
+                "logo", "sello_judicial", "firma",
+                "plantilla_citacion", "plantilla_citacion_sentencia", "plantilla_sentencia",
+            )
+        }
+        help_texts = {
+            campo: "" for campo in (
+                "logo", "sello_judicial", "firma",
+                "plantilla_citacion", "plantilla_citacion_sentencia", "plantilla_sentencia",
+            )
+        }
         labels = {
             "logo": "Logo institucional",
             "sello_judicial": "Sello judicial",
@@ -96,6 +142,11 @@ class PlantillaJuzgadoForm(forms.ModelForm):
             "plantilla_citacion_sentencia": "Carta de citación y sentencia (.docx)",
             "plantilla_sentencia": "Carta de sentencia (.docx)",
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for campo in self.fields.values():
+            campo.error_messages.update(MENSAJES_ARCHIVO)
 
     def _validar_plantilla(self, campo, tipo):
         archivo = self.cleaned_data.get(campo)
@@ -110,6 +161,11 @@ class PlantillaJuzgadoForm(forms.ModelForm):
             archivo.seek(0)
             if not es_valida and mensaje.startswith("A la plantilla le falta"):
                 raise forms.ValidationError(mensaje)
+            if not es_valida and ("zip" in mensaje.lower() or "package" in mensaje.lower()):
+                raise forms.ValidationError(
+                    "El archivo no es un Word (.docx) válido. Ábrelo en Word y guárdalo como "
+                    "«Documento de Word (.docx)»."
+                )
             if not es_valida:
                 raise forms.ValidationError(
                     "No se pudo generar una carta de prueba con esta plantilla — revisa "

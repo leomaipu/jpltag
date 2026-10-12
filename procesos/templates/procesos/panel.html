@@ -1,61 +1,83 @@
 {% extends "procesos/base.html" %}
-{% block titulo %}Panel{% endblock %}
+{% load static diseno %}
+{% block titulo %}Inicio{% endblock %}
+{% block marca %}Inicio{% endblock %}
 {% block contenido %}
-<h1>Panel</h1>
+<header class="cab">
+  <h1>Hola, {{ user.first_name|default:user.username }}</h1>
+  <p>{% if perfil.puede_generar_cartas %}Prepara las cartas del mes o revisa las audiencias que vienen.{% else %}Revisa las audiencias programadas.{% endif %}
+    {% if juzgados|length > 1 %}Ves los {{ juzgados|length }} juzgados.{% endif %}</p>
+  <div class="tribarra"><i></i></div>
+</header>
 
-{% if juzgados|length > 1 %}
-<p class="ayuda">Ves los {{ juzgados|length }} juzgados (acceso de Administrador).</p>
-{% endif %}
-
-<div class="tarjeta">
-  <h2>Acciones</h2>
+<section class="bloque bloque--azul heroe" aria-labelledby="heroe-titulo">
   {% if perfil.puede_generar_cartas %}
-    <a class="boton" href="{% url 'procesos:subir_nomina' %}">Subir nómina y generar cartas</a>
-  {% endif %}
-  <a class="boton boton-secundario" href="{% url 'procesos:agenda' %}">Ver agenda</a>
-</div>
-
-<div class="tarjeta">
-  <h2>Últimas generaciones</h2>
-  {% if generaciones %}
-  <table>
-    <tr><th>Juzgado</th><th>Fecha</th><th>Usuario</th><th>Patentes</th><th>Estado</th><th></th></tr>
-    {% for g in generaciones %}
-    <tr>
-      <td>{{ g.juzgado.slug|upper }}</td>
-      <td>{{ g.creado|date:"d-m-Y H:i" }}</td>
-      <td>{{ g.usuario.get_full_name|default:g.usuario.username }}</td>
-      <td>{{ g.total_patentes }}</td>
-      <td>
-        {% if g.estado == "OK" %}<span class="etiqueta etiqueta-ok">Completado</span>
-        {% elif g.estado == "CON_ERRORES" %}<span class="etiqueta etiqueta-error">Con errores</span>
-        {% else %}<span class="etiqueta etiqueta-error">Falló</span>{% endif %}
-      </td>
-      <td><a href="{% url 'procesos:resultado' g.pk %}">Ver</a></td>
-    </tr>
-    {% endfor %}
-  </table>
+  <h2 id="heroe-titulo">Una carta por patente, con todas sus multas del mes</h2>
+  <p>Sube la nómina de la DAF, elige si es citación, citación y sentencia o sentencia, y descarga los Word listos para imprimir.</p>
+  <a class="btn btn--primario" href="{% url 'procesos:subir_nomina' %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#subir"/></svg>Subir nómina</a>
   {% else %}
-  <p class="ayuda">Todavía no se ha generado ninguna carta.</p>
+  <h2 id="heroe-titulo">Audiencias del juzgado</h2>
+  <p>Revisa cuántos cupos quedan en cada bloque y agrega nuevos horarios.</p>
+  <a class="btn btn--primario" href="{% url 'procesos:agenda' %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg>Abrir agenda</a>
   {% endif %}
-</div>
+</section>
 
-<div class="tarjeta">
-  <h2>Próximos bloques de agenda</h2>
-  {% if proximos_bloques %}
-  <table>
-    <tr><th>Juzgado</th><th>Fecha</th><th>Hora</th><th>Cupos</th></tr>
-    {% for b in proximos_bloques %}
-    <tr>
-      <td>{{ b.juzgado.slug|upper }}</td>
-      <td>{{ b.fecha|date:"d-m-Y" }}</td>
-      <td>{{ b.hora|time:"H:i" }}</td>
-      <td>{{ b.cupos_usados }}/{{ b.cupos_totales }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <p class="ayuda">No hay bloques de horario cargados. Agrégalos en <a href="{% url 'procesos:agenda' %}">Agenda</a>.</p>
+<div class="rejilla {% if perfil.puede_generar_cartas %}rejilla--2{% else %}rejilla--sola{% endif %}">
+  {% if perfil.puede_generar_cartas %}
+  <section class="bloque" aria-labelledby="gen-titulo">
+    <h2 id="gen-titulo" class="seccion__titulo">Últimas generaciones</h2>
+    {% if generaciones %}
+    <ul class="lista">
+      {% for g in generaciones %}
+      <li>
+        <a class="fila" href="{% url 'procesos:resultado' g.pk %}">
+          <span class="fila__titulo">
+            {{ g.get_tipo_carta_display }}
+            {% if g.estado == "OK" %}<span class="estado">Lista</span>
+            {% elif g.estado == "CON_ERRORES" %}<span class="estado estado--aviso">Con errores</span>
+            {% else %}<span class="estado estado--error">Falló</span>{% endif %}
+          </span>
+          <span class="fila__meta">
+            {{ g.creado|date:"j M, H:i"|lower }}.
+            {% if g.estado != "FALLIDO" %}{{ g.total_patentes }} patente{{ g.total_patentes|pluralize }}.{% endif %}
+            {% if juzgados|length > 1 %}{{ g.juzgado.slug|upper }}.{% endif %}
+            {{ g.usuario.get_full_name|default:g.usuario.username }}
+          </span>
+          <span class="fila__lado"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#derecha"/></svg></span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="vacio">
+      <p>Todavía no se ha generado ninguna carta.</p>
+      <a class="btn btn--chico" href="{% url 'procesos:subir_nomina' %}">Generar las primeras</a>
+    </div>
+    {% endif %}
+  </section>
   {% endif %}
+
+  <section class="bloque" aria-labelledby="aud-titulo">
+    <h2 id="aud-titulo" class="seccion__titulo">Próximas audiencias<small>Cupos usados por bloque</small></h2>
+    {% if proximos_bloques %}
+    <ul>
+      {% for b in proximos_bloques %}
+      <li class="aud">
+        <p class="aud__dia">{{ b.fecha|date:"D j M"|lower }}{% if juzgados|length > 1 %}, {{ b.juzgado.slug|upper }}{% endif %}</p>
+        <div class="hora">
+          <span class="hora__hora">{{ b.hora|time:"H:i" }}</span>
+          {% cupos b %}
+          <span class="hora__cupos">{{ b.cupos_usados }} de {{ b.cupos_totales }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="vacio">
+      <p>No hay bloques de horario cargados. Sin ellos, las citaciones salen con la fecha por coordinar.</p>
+      <a class="btn btn--chico" href="{% url 'procesos:agenda' %}">Agregar horarios</a>
+    </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

@@ -95,6 +95,33 @@ el N° de parte), así que la columna Rol imprime `PENDIENTE` hasta que esa
 columna venga en la nómina (`motor/cartas.formatear_rol`). Igual con
 `Reg N°` («folio carta trámite»).
 
+### Diseño de la interfaz (manual de marca de la Municipalidad)
+
+La interfaz sigue el manual de marca: tipografía **Rubik** (variable, licencia
+OFL, autoalojada en `procesos/static/procesos/fonts/`), azul `#10174a`,
+turquesa `#33cccc`, magenta `#e60380` y ámbar `#ffb71b`, la barra tricolor del
+subrayado del logo, bloques con la esquina superior redondeada, botones
+píldora y los tres puntos. El logo y el escudo se extrajeron del manual como
+SVG (`procesos/static/procesos/img/`), solo optimizados (svgo, 2 decimales).
+
+- **Mobile first y adaptativa**: teléfono (<720 px) con barra superior y
+  navegación inferior; tablet (≥720 px) con la navegación en la barra; escritorio
+  (≥960 px) con riel lateral y logo completo. El CSS base es el de teléfono y las
+  *media queries* solo agregan.
+- **Todo propio, nada externo**: la CSP de producción (`SECURE_CSP` en
+  `config/settings.py`) solo admite estilos, scripts y fuentes de `'self'`. Por
+  eso no hay `<style>`, `style=""`, `on*=` ni scripts en línea ni CDN: el CSS está
+  en `procesos/static/procesos/css/app.css` y la mejora progresiva en
+  `.../js/app.js`. Todo funciona sin JavaScript; el JS agrega comodidad (zona de
+  arrastre, estado de espera, selector de juzgado). `procesos/tests/test_diseno.py`
+  falla si una pantalla vuelve a incluir algo que la CSP bloquearía.
+- **Accesibilidad**: contrastes AA (botón primario `#d90277`, bordes de controles
+  ≥3:1), foco visible, resumen de errores con foco, `forced-colors`,
+  `prefers-reduced-motion` y barras que no se comen la pantalla con poca altura.
+- Los estáticos se sirven con WhiteNoise (`collectstatic` corre en el
+  `Dockerfile`). Los tests usan el almacenamiento simple y una prueba aparte ejecuta
+  `collectstatic` con el almacenamiento de producción (manifiesto con hash).
+
 ### UTM automático (Módulo 4)
 
 El botón "Verificar valor UTM" en `/plantilla/` consulta el valor UTM

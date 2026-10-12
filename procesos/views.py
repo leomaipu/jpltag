@@ -10,6 +10,8 @@ registro en GeneracionCartas/ArchivoGenerado en vez de solo imprimir en
 pantalla.
 """
 
+import logging
+import zipfile
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -35,7 +37,7 @@ from motor.reportes import escribir_log_errores, exportar_duplicados
 from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta
 
-from .forms import BloqueHorarioForm, PlantillaJuzgadoForm, SubirNominaForm
+from .forms import BloqueHorarioForm, IngresarForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
 from .permisos import (
     PerfilRequeridoMixin,
@@ -45,10 +47,30 @@ from .permisos import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Helpers de juzgado activo (un Administrador sin juzgado fijo ve los 3 y
 # elige con cuál trabajar vía ?juzgado=<slug>)
 # ══════════════════════════════════════════════════════════════════════
+
+def _mensaje_para_personas(exc):
+    """Los errores de pandas/openpyxl vienen en inglés y hablan de motores
+    y zips; a quien sube la nómina le sirve saber qué hacer. El detalle
+    técnico queda en el log del servidor."""
+    texto = str(exc)
+    marcas_de_archivo_invalido = (
+        "Excel file format cannot be determined", "File is not a zip file",
+        "BadZipFile", "not a zip file", "Unsupported format", "corrupt",
+    )
+    if isinstance(exc, zipfile.BadZipFile) or any(m in texto for m in marcas_de_archivo_invalido):
+        return (
+            "El archivo no es un Excel (.xlsx) válido. Ábrelo en Excel, guárdalo como "
+            "«Libro de Excel (.xlsx)» y súbelo otra vez."
+        )
+    return texto
+
 
 def _juzgados_visibles(perfil):
     if perfil.juzgado_id:
@@ -60,6 +82,11 @@ def _juzgado_actual(request, perfil):
     visibles = _juzgados_visibles(perfil)
     slug = request.GET.get("juzgado") or request.POST.get("juzgado")
     if slug:
+        if not visibles.filter(slug=slug).exists() and Juzgado.objects.filter(slug=slug).exists():
+            # El juzgado existe pero no es del usuario: 403, igual que el
+            # resto de los recursos de otro juzgado (no 404, que sugiere
+            # que no existe).
+            raise PermissionDenied("No tienes acceso a ese juzgado.")
         return get_object_or_404(visibles, slug=slug)
     return visibles.first()
 
@@ -70,6 +97,7 @@ def _juzgado_actual(request, perfil):
 
 class IngresarView(LoginView):
     template_name = "procesos/login.html"
+    authentication_form = IngresarForm
     redirect_authenticated_user = True
 
 
@@ -311,7 +339,10 @@ def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
         return generacion
 
     except Exception as exc:
-        return _registrar_fallo(juzgado, usuario, archivo_nomina.name, carpeta_rel, str(exc))
+        logger.exception("Falló la generación de cartas (%s)", juzgado.slug)
+        return _registrar_fallo(
+            juzgado, usuario, archivo_nomina.name, carpeta_rel, _mensaje_para_personas(exc),
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -327,7 +358,7 @@ class ResultadoView(PuedeGenerarCartasMixin, View):
         if not perfil.tiene_acceso_a(generacion.juzgado):
             raise PermissionDenied("No tienes acceso a este juzgado.")
         archivos = generacion.archivos.all()
-        mes_nombre = MESES[generacion.mes_periodo - 1].capitalize() if generacion.mes_periodo else None
+        mes_nombre = MESES[generacion.mes_periodo - 1] if generacion.mes_periodo else None
         return render(request, "procesos/resultado.html", {
             "generacion": generacion, "archivos": archivos, "mes_nombre": mes_nombre,
         })
@@ -517,7 +548,12 @@ class ActualizarUTMView(PuedeEditarPlantillaMixin, View):
         try:
             info = consultar_utm_vigente()
         except ErrorConsultaUTM as exc:
-            messages.error(request, f"No se pudo consultar el valor UTM vigente: {exc}")
+            logger.warning("Consulta UTM fallida: %s", exc)
+            messages.error(
+                request,
+                "No se pudo consultar el valor UTM vigente (mindicador.cl no respondió). "
+                "Inténtalo de nuevo en unos minutos; mientras tanto se sigue usando el valor guardado.",
+            )
         else:
             anterior = juzgado.utm_valor
             periodo = f"{MESES[info['fecha'].month - 1]} {info['fecha'].year}"

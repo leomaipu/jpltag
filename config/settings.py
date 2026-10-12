@@ -13,6 +13,7 @@ en maiproject.cl (Soporte Existencias y MaiReservas), descritas en el
   - Login con límite de intentos por usuario + IP (django-axes).
 """
 
+import sys
 from pathlib import Path
 
 import environ
@@ -160,6 +161,7 @@ LOGOUT_REDIRECT_URL = "procesos:ingresar"
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 0.5  # horas (30 min), igual que las otras apps del servidor
 AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_LOCKOUT_TEMPLATE = "procesos/bloqueado.html"  # misma marca que el resto, en vez del texto plano de axes
 
 # ──────────────────────────────────────────────────────────────────────────
 # Seguridad de navegación: sin CDN, todo autoalojado (regla de la plataforma)
@@ -205,6 +207,11 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
 }
+# Las pruebas no corren collectstatic: sin manifiesto, {% static %} fallaría.
+# El camino de producción (manifiesto + hash) se prueba aparte en
+# procesos/tests/test_diseno.py, ejecutando collectstatic de verdad.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 

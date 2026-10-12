@@ -184,11 +184,15 @@ class ComportamientosNuevosTest(TestCase):
     def test_un_excel_corrupto_se_explica_sin_jerga_de_pandas(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         ingresar(self.client, "secretaria")
-        resp = self.client.post("/subir/", {
-            "juzgado": "jpl1", "tipo_carta": "CITACION", "nombre_firmante": "Ana",
-            "cargo_firma": "SECRETARIO", "n_cartas_paquete": "0",
-            "nomina": SimpleUploadedFile("nomina.xlsx", b"esto no es un excel"),
-        }, follow=True)
+        # SALIDAS_ROOT apunta a una carpeta temporal: en la imagen de
+        # despliegue /app/salidas no es escribible durante las pruebas.
+        with tempfile.TemporaryDirectory() as salidas, override_settings(SALIDAS_ROOT=salidas), \
+                self.assertLogs("procesos.views", level="ERROR"):
+            resp = self.client.post("/subir/", {
+                "juzgado": "jpl1", "tipo_carta": "CITACION", "nombre_firmante": "Ana",
+                "cargo_firma": "SECRETARIO", "n_cartas_paquete": "0",
+                "nomina": SimpleUploadedFile("nomina.xlsx", b"esto no es un excel"),
+            }, follow=True)
         html = resp.content.decode()
         self.assertNotIn("Excel file format cannot be determined", html)
         self.assertNotIn("not a zip file", html)

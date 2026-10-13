@@ -90,6 +90,7 @@ from docxtpl import DocxTemplate, InlineImage
 
 from .agenda import SLOT_SIN_AGENDA
 from .agrupacion import expandir_en_paginas
+from .revisiones import plantilla_limpia
 from .cartas import (
     BLOQUE_POSTAL_DEFECTO,
     ENTIDAD_DENUNCIANTE_DEFECTO,
@@ -269,7 +270,8 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
 def renderizar_carta(ruta_plantilla, contexto, config):
     """Renderiza UNA carta con docxtpl y devuelve el Document en memoria
     (python-docx), sin guardar a disco todavía."""
-    tpl = DocxTemplate(ruta_plantilla)
+    # Sin control de cambios ni comentarios: si no, saldrían impresos.
+    tpl = DocxTemplate(plantilla_limpia(ruta_plantilla))
     ctx = dict(contexto)
     for clave, clave_ruta, ancho, valor_vacio in [
         ("logo_img", "logo_path", ANCHO_LOGO_IN, ""),
@@ -406,7 +408,7 @@ def validar_plantilla(archivo, tipo=None):
     patente, tabla de infracciones y la fecha de la audiencia/sentencia).
     Devuelve (es_valida, mensaje_error)."""
     try:
-        tpl = DocxTemplate(archivo)
+        tpl = DocxTemplate(plantilla_limpia(archivo))
         ctx = contexto_de_ejemplo(tipo or TIPO_CITACION)
         ctx["logo_img"] = ""
         ctx["sello_img"] = ""

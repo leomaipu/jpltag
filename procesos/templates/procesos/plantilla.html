@@ -106,6 +106,7 @@
   <div class="avanzado__cuerpo">
     <p>Cada plantilla define el diseño de la carta y su texto legal. Descarga la vigente, edítala en Word conservando los marcadores y vuelve a subirla.</p>
     <p>Los datos del infractor van entre llaves, por ejemplo <code>{% templatetag openvariable %} nombre_infractor {% templatetag closevariable %}</code> o <code>{% templatetag openvariable %} patente {% templatetag closevariable %}</code>. La tabla de infracciones usa una fila repetida, entre <code>{% templatetag openblock %}tr for causa in causas {% templatetag closeblock %}</code> y <code>{% templatetag openblock %}tr endfor {% templatetag closeblock %}</code>.</p>
+    <p>Si el Word tiene el control de cambios activo o comentarios de revisión, no hay problema: al generar las cartas se toman los cambios como aceptados y los comentarios se descartan, así que no salen impresos.</p>
     <p>Antes de guardar, la aplicación genera una carta de prueba con datos ficticios y comprueba que traiga nombre, RUT, patente, tabla de infracciones y la fecha de la audiencia o sentencia. Si falta algo, no se guarda y te dice qué revisar.</p>
   </div>
 </details>

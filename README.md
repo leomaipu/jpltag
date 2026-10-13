@@ -95,6 +95,17 @@ el N° de parte), así que la columna Rol imprime `PENDIENTE` hasta que esa
 columna venga en la nómina (`motor/cartas.formatear_rol`). Igual con
 `Reg N°` («folio carta trámite»).
 
+### Plantillas con control de cambios y comentarios
+
+Las plantillas Word pueden subirse con el control de cambios activo y con
+comentarios de revisión: Word los imprime (cambios en color, globos al margen)
+si quedan en el archivo, y las cartas son documentos oficiales. `motor/revisiones.py`
+limpia una copia en memoria de la plantilla antes de usarla —tanto al validarla
+como al generar cada carta—: acepta todos los cambios (lo insertado queda como
+texto normal, lo eliminado desaparece), descarta los registros de formato anterior,
+borra los comentarios y la lista de revisores y apaga el seguimiento de cambios.
+El archivo guardado en el Juzgado no se modifica.
+
 ### Diseño de la interfaz (manual de marca de la Municipalidad)
 
 La interfaz sigue el manual de marca: tipografía **Rubik** (variable, licencia

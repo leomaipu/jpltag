@@ -12,6 +12,14 @@ cada carta.
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# Las cartas llevan la fecha de Chile aunque el servidor ande en UTC.
+ZONA_CHILE = ZoneInfo("America/Santiago")
+
+
+def ahora_chile():
+    return datetime.now(ZONA_CHILE)
 
 ENTIDAD_DENUNCIANTE_DEFECTO = (
     "DIRECCIÓN DE ADMINISTRACIÓN Y FINANZAS DE LA ILUSTRE MUNICIPALIDAD DE MAIPÚ"
@@ -23,7 +31,7 @@ BLOQUE_POSTAL_DEFECTO = "SANTIAGO 16"
 def fecha_hoy():
     meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
              "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-    h = datetime.now()
+    h = ahora_chile()
     return f"{h.day} de {meses[h.month - 1]} de {h.year}"
 
 

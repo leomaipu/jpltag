@@ -22,42 +22,84 @@
 {% endif %}
 
 {% if form %}
-<details class="avanzado" {% if form.errors %}open{% endif %}>
-  <summary>Agregar un bloque de horario</summary>
-  <div class="avanzado__cuerpo">
-    <form method="post">
-      {% csrf_token %}
-      <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
-      {% for campo in form %}
-      <div class="campo">
-        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
-        {{ campo }}
-        {{ campo.errors }}
-      </div>
-      {% endfor %}
-      <div class="acciones"><button type="submit" class="btn btn--azul">Agregar bloque</button></div>
-    </form>
-  </div>
-</details>
+<div class="altas">
+  <details class="avanzado" id="agregar" {% if abrir == "uno" %}open{% endif %}>
+    <summary>Agregar un horario</summary>
+    <div class="avanzado__cuerpo">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+        <input type="hidden" name="accion" value="uno">
+        {% include "procesos/_errores.html" %}
+        <div class="campos-fila">
+          <div class="campo">
+            <label for="{{ form.fecha.id_for_label }}">{{ form.fecha.label }}</label>
+            {{ form.fecha }}
+            {{ form.fecha.errors }}
+          </div>
+          <div class="campo">
+            <label for="{{ form.hora.id_for_label }}">{{ form.hora.label }}</label>
+            {{ form.hora }}
+            {{ form.hora.errors }}
+          </div>
+          <div class="campo">
+            <label for="{{ form.cupos_totales.id_for_label }}">{{ form.cupos_totales.label }}</label>
+            {{ form.cupos_totales }}
+            {{ form.cupos_totales.errors }}
+          </div>
+        </div>
+        <div class="acciones acciones--izq"><button type="submit" class="btn btn--azul">Agregar horario</button></div>
+      </form>
+    </div>
+  </details>
+
+  <details class="avanzado" {% if abrir == "serie" %}open{% endif %}>
+    <summary>Agregar varios horarios de un mismo día</summary>
+    <div class="avanzado__cuerpo">
+      <form method="post" data-serie>
+        {% csrf_token %}
+        <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+        <input type="hidden" name="accion" value="serie">
+        <p class="campo__ayuda">Crea de una vez las audiencias del día, a intervalos regulares. Los horarios que ya existen no se tocan.</p>
+        {% include "procesos/_errores.html" with form=serie_form %}
+        <div class="campos-fila campos-fila--serie">
+          {% for campo in serie_form %}
+          <div class="campo">
+            <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+            {{ campo }}
+            {{ campo.errors }}
+          </div>
+          {% endfor %}
+        </div>
+        <p class="serie__resumen" data-serie-resumen aria-hidden="true"></p>
+        <p class="solo-lectores" role="status" data-serie-anuncio></p>
+        <div class="acciones acciones--izq"><button type="submit" class="btn btn--azul">Agregar la serie</button></div>
+      </form>
+    </div>
+  </details>
+</div>
 {% endif %}
 
 <section class="seccion" aria-label="Bloques cargados">
-  {% if bloques %}
+  {% if proximos %}
   <div class="dias">
-    {% regroup bloques by fecha as por_dia %}
+    {% regroup proximos by fecha as por_dia %}
     {% for dia in por_dia %}
     <article class="dia">
       <div class="dia__fecha">
         <span class="dia__numero">{{ dia.grouper|date:"j" }}</span>
         <span class="dia__mes">{{ dia.grouper|date:"M Y"|lower }}</span>
-        <span class="dia__sem">{{ dia.grouper|date:"D"|lower }}</span>
+        <span class="dia__sem">{% if dia.grouper == hoy %}hoy{% else %}{{ dia.grouper|date:"D"|lower }}{% endif %}</span>
       </div>
       <div class="horas">
         {% for b in dia.list %}
-        <div class="hora">
+        <div class="hora hora--fila" id="bloque-{{ b.pk }}">
           <span class="hora__hora">{{ b.hora|time:"H:i" }}</span>
           {% cupos b %}
-          <span class="hora__cupos">{{ b.cupos_usados }} de {{ b.cupos_totales }}</span>
+          <span class="hora__cupos">{{ b.cupos_usados }} de {{ b.cupos_totales }}{% if b.cupos_usados >= b.cupos_totales %}<span class="hora__lleno">Lleno</span>{% endif %}</span>
+          {% if puede_editar %}
+          <a class="hora__editar" href="{% url 'procesos:bloque_editar' b.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#editar"/></svg><span class="solo-lectores">Editar el bloque de las {{ b.hora|time:"H:i" }} del {{ dia.grouper|date:"j \d\e F" }}</span></a>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -66,8 +108,24 @@
   </div>
   {% else %}
   <div class="bloque vacio">
-    <p>No hay bloques cargados. Agrega la fecha, la hora y los cupos de cada audiencia; las citaciones los ocupan en orden.</p>
+    <p>No hay horarios desde hoy en adelante. Agrega la fecha, la hora y los cupos de cada audiencia; las citaciones los ocupan en orden.</p>
   </div>
+  {% endif %}
+
+  {% if pasados %}
+  <details class="avanzado historial">
+    <summary>Historial: bloques que ya pasaron ({{ total_pasados }})</summary>
+    <div class="avanzado__cuerpo">
+      <ul class="historial__lista">
+        {% for b in pasados %}
+        <li><span>{{ b.fecha|date:"D j M Y"|lower }}, {{ b.hora|time:"H:i" }}</span><span>{{ b.cupos_usados }} de {{ b.cupos_totales }}</span></li>
+        {% endfor %}
+      </ul>
+      {% if historial_recortado %}
+      <p class="campo__ayuda mt">Se muestran los {{ historial_visible }} más recientes de {{ total_pasados }}. <a href="?juzgado={{ juzgado.slug }}&amp;historial=todo">Ver todos</a>.</p>
+      {% endif %}
+    </div>
+  </details>
   {% endif %}
 </section>
 {% endblock %}

@@ -133,6 +133,17 @@ SVG (`procesos/static/procesos/img/`), solo optimizados (svgo, 2 decimales).
   `Dockerfile`). Los tests usan el almacenamiento simple y una prueba aparte ejecuta
   `collectstatic` con el almacenamiento de producción (manifiesto con hash).
 
+### Mantenedor de bloques horarios (`/agenda/`)
+
+Cada bloque es una audiencia con cupos; las citaciones toman cupos del primer bloque con lugar. Desde la agenda se puede agregar un horario, agregar una serie de un mismo día (hasta 48), editar, cerrar cupos y eliminar. Reglas, todas pensadas para no dejar cartas ya impresas apuntando a algo falso:
+
+- Solo se ofrecen y se editan bloques que **aún no empiezan** (hora de Chile). Los que ya pasaron quedan en el Historial, de solo lectura.
+- Un bloque **con cartas** (cupos ocupados) no cambia de fecha ni de hora, sus cupos no bajan de los ocupados y no se elimina. Para mover la audiencia: «Cerrar cupos» y crear un bloque nuevo (la pantalla ofrece el atajo).
+- «Corregir cupos ocupados» es la única forma de devolver cupos a mano: pide un motivo y queda en `BloqueAjuste` (quién, cuándo, de→a, por qué), visible en la pantalla del bloque.
+- La generación de cartas reserva los cupos bajo bloqueo de filas y en una sola transacción (`_reservar_agenda`): dos generaciones simultáneas no se reparten el mismo cupo y editar un bloque no deja cartas con datos viejos. La corrida queda anotada `EN_CURSO` con los cupos que tomó (`cupos_por_bloque`); si falla, los devuelve; si el proceso muere a mitad de camino, a los 10 minutos la pantalla del bloque ofrece «Devolver los cupos de esa generación».
+- La base exige `cupos_usados <= cupos_totales` (restricción) y dos pestañas no se pisan: el formulario lleva una huella de fecha, hora y cupos.
+- En `/admin/` los cupos ocupados son de solo lectura y no se borran bloques con cartas.
+
 ### UTM automático (Módulo 4)
 
 El botón "Verificar valor UTM" en `/plantilla/` consulta el valor UTM

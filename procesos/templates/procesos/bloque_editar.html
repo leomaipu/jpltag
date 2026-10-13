@@ -1,0 +1,145 @@
+{% extends "procesos/base.html" %}
+{% load static diseno %}
+{% block titulo %}Editar bloque{% endblock %}
+{% block marca %}Agenda{% endblock %}
+{% block contenido %}
+<a class="volver" href="{% url 'procesos:agenda' %}?juzgado={{ juzgado.slug }}#bloque-{{ bloque.pk }}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#izquierda"/></svg>Volver a la agenda</a>
+
+<header class="cab">
+  <h1>Editar bloque</h1>
+  <p>{{ juzgado.nombre }}.</p>
+  <div class="tribarra"><i></i></div>
+</header>
+
+<section class="ficha" aria-label="Bloque actual">
+  <div class="ficha__fecha">
+    <span class="dia__numero">{{ bloque.fecha|date:"j" }}</span>
+    <span class="dia__mes">{{ bloque.fecha|date:"M Y"|lower }}</span>
+  </div>
+  <div class="ficha__datos">
+    <p class="ficha__hora">{{ bloque.fecha|date:"l"|lower }}, {{ bloque.hora|time:"H:i" }}</p>
+    <div data-vista-cupos data-usados="{{ bloque.cupos_usados }}">
+      {% cupos bloque %}
+      <p class="ficha__cupos"><strong data-vista-usados>{{ bloque.cupos_usados }}</strong> de <strong data-vista-total>{{ bloque.cupos_totales }}</strong> cupos ocupados</p>
+    </div>
+  </div>
+</section>
+
+{% if form.bloqueado %}
+<p class="aviso-caja" role="note" id="aviso-bloqueado">
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#candado"/></svg>
+  <span><strong>{{ bloque.cupos_usados }} carta{{ bloque.cupos_usados|pluralize }} ya cita{{ bloque.cupos_usados|pluralize:"n" }} a este horario.</strong> La fecha y la hora quedan fijas para no dejar esas cartas apuntando a algo distinto. Los cupos sí se pueden cambiar, sin bajar de {{ bloque.cupos_usados }}.</span>
+</p>
+<p class="aviso-caja__salida">¿Hay que mover la audiencia? Deja este bloque como está y {% if bloque.cupos_disponibles %}<a href="{% url 'procesos:agenda' %}?juzgado={{ juzgado.slug }}&amp;cupos={{ bloque.cupos_disponibles }}&amp;abrir=uno">crea uno nuevo con los {{ bloque.cupos_disponibles }} cupo{{ bloque.cupos_disponibles|pluralize }} que quedan</a>{% else %}<a href="{% url 'procesos:agenda' %}?juzgado={{ juzgado.slug }}&amp;abrir=uno">crea uno nuevo</a>{% endif %}. Las cartas ya impresas siguen citando a la fecha y hora de este.</p>
+{% endif %}
+
+<form method="post" class="formulario-ancho" novalidate>
+  {% csrf_token %}
+  {{ form.version }}
+  {% include "procesos/_errores.html" %}
+
+  <section class="bloque">
+    <h2 class="seccion__titulo">Datos del bloque</h2>
+    <div class="campos-fila">
+      <div class="campo">
+        <label for="{{ form.fecha.id_for_label }}">{{ form.fecha.label }}</label>
+        {{ form.fecha }}
+        {{ form.fecha.errors }}
+      </div>
+      <div class="campo">
+        <label for="{{ form.hora.id_for_label }}">{{ form.hora.label }}</label>
+        {{ form.hora }}
+        {{ form.hora.errors }}
+      </div>
+    </div>
+    <div class="campo">
+      <label for="{{ form.cupos_totales.id_for_label }}">Cupos del bloque</label>
+      <div class="paso-numero">
+        <button type="button" class="paso-numero__boton" data-paso="-1" hidden aria-label="Quitar un cupo"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#menos"/></svg></button>
+        {{ form.cupos_totales }}
+        <button type="button" class="paso-numero__boton" data-paso="1" hidden aria-label="Agregar un cupo"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#mas"/></svg></button>
+      </div>
+      {{ form.cupos_totales.errors }}
+      <span class="campo__ayuda">{% if bloque.cupos_usados %}Mínimo {{ bloque.cupos_usados }}: los que ya ocupan las cartas emitidas.{% else %}Cuántas patentes pueden citarse a este horario.{% endif %}</span>
+    </div>
+
+    <details class="avanzado avanzado--interno" {% if form.correccion_abierta %}open{% endif %}>
+      <summary>Corregir cupos ocupados</summary>
+      <div class="avanzado__cuerpo">
+        <p class="campo__ayuda">Los cupos ocupados los cuentan las cartas que se generan. Cámbialos solo si sabes que no corresponden, por ejemplo tras una prueba que gastó cupos. Las cartas ya impresas seguirán citando a este horario, así que bajar el número puede dejar el bloque con más gente de la que dice. Queda anotado quién lo hizo y por qué.</p>
+        {{ form.usados_vistos }}
+        <div class="campo">
+          <label for="{{ form.cupos_usados.id_for_label }}">{{ form.cupos_usados.label }}</label>
+          {{ form.cupos_usados }}
+          {{ form.cupos_usados.errors }}
+        </div>
+        <div class="campo">
+          <label for="{{ form.motivo_correccion.id_for_label }}">{{ form.motivo_correccion.label }}</label>
+          {{ form.motivo_correccion }}
+          {{ form.motivo_correccion.errors }}
+          <span class="campo__ayuda">Obligatorio si cambias el número. {{ form.motivo_correccion.help_text }}</span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <div class="acciones acciones--fija acciones--doble">
+    <a class="btn" href="{% url 'procesos:agenda' %}?juzgado={{ juzgado.slug }}">Cancelar</a>
+    <button type="submit" class="btn btn--primario">Guardar cambios</button>
+  </div>
+</form>
+
+{% if bloque.cupos_usados or ajustes %}
+<details class="avanzado origen">
+  <summary>De dónde salen los cupos ocupados</summary>
+  <div class="avanzado__cuerpo">
+    {% if corridas %}
+    <ul class="historial__lista">
+      {% for c in corridas %}
+      <li>
+        <span>{{ c.creado|date:"j M Y, H:i"|lower }}, {{ c.usuario.get_username }}{% if c.interrumpida %}. <strong>Se interrumpió antes de terminar:</strong> sus cartas no salieron.{% elif c.estado == "EN_CURSO" %}. En curso ahora.{% endif %}</span>
+        <span>{{ c.cupos_en_este_bloque }} cupo{{ c.cupos_en_este_bloque|pluralize }}</span>
+      </li>
+      {% if c.interrumpida %}
+      <li class="historial__accion">
+        <form method="post">{% csrf_token %}<input type="hidden" name="accion" value="devolver_corrida"><input type="hidden" name="corrida" value="{{ c.pk }}"><button type="submit" class="btn btn--chico">Devolver los cupos de esa generación</button></form>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if sin_origen %}
+    <p class="campo__ayuda">{{ sin_origen }} cupo{{ sin_origen|pluralize }} sin corrida asociada: vienen de generaciones anteriores a este registro o de una corrección manual. Si una corrección bajó el número, las corridas de arriba pueden sumar más de lo que el bloque cuenta hoy.</p>
+    {% endif %}
+    {% if ajustes %}
+    <h3 class="origen__sub">Correcciones manuales</h3>
+    <ul class="historial__lista">
+      {% for a in ajustes %}
+      <li><span>{{ a.creado|date:"j M Y, H:i"|lower }}, {{ a.nombre_usuario }}: de {{ a.desde }} a {{ a.hasta }}. {{ a.motivo }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</details>
+{% endif %}
+
+<section class="bloque zona" aria-labelledby="zona-titulo">
+  <h2 id="zona-titulo" class="seccion__titulo">Cerrar o eliminar</h2>
+  {% if bloque.cupos_usados and bloque.cupos_usados < bloque.cupos_totales %}
+  <div class="zona__fila">
+    <p>Deja de ofrecer los {{ bloque.cupos_disponibles }} cupo{{ bloque.cupos_disponibles|pluralize }} que sobra{{ bloque.cupos_disponibles|pluralize:"n" }}: el bloque queda con {{ bloque.cupos_usados }} de {{ bloque.cupos_usados }} y no recibe más cartas.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="accion" value="cerrar"><button type="submit" class="btn btn--chico">Cerrar cupos</button></form>
+  </div>
+  {% elif bloque.cupos_usados %}
+  <p class="texto-suave">Este bloque ya está cerrado: todos sus cupos están ocupados.</p>
+  {% endif %}
+  <div class="zona__fila">
+    {% if puede_eliminar %}
+    <p>Elimina el bloque si lo creaste por error. Ninguna carta lo usa todavía.</p>
+    <a class="btn btn--chico btn--peligro" href="{% url 'procesos:bloque_eliminar' bloque.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#papelera"/></svg>Eliminar bloque</a>
+    {% else %}
+    <p class="texto-suave">No se puede eliminar: {{ bloque.cupos_usados }} carta{{ bloque.cupos_usados|pluralize }} ya cita{{ bloque.cupos_usados|pluralize:"n" }} a este horario.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

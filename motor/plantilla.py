@@ -81,7 +81,6 @@ docxtpl repita la fila de la tabla hacen falta 3 filas en la plantilla
 import os
 import re
 import traceback
-from datetime import datetime
 
 import pandas as pd
 from docx.shared import Inches
@@ -95,6 +94,7 @@ from .cartas import (
     BLOQUE_POSTAL_DEFECTO,
     ENTIDAD_DENUNCIANTE_DEFECTO,
     MOTIVO_INFRACCION_DEFECTO,
+    ahora_chile,
     clausula_audiencia,
     condena_monto_txt,
     fecha_hoy,
@@ -202,7 +202,7 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
     else:
         fecha_aud, hora_aud = slot_audiencia
     hora_txt = f"{hora_aud} hrs." if hora_aud else ""
-    anio_actual = datetime.now().year
+    anio_actual = ahora_chile().year
     reg = info.get("reg_raw") or "«folio carta trámite»"
     utm_total = sum(c["monto"] for c in info["causas"])
 
@@ -497,7 +497,7 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
 
     seguimiento = []
     numero_carta_global = 0
-    anio_actual = datetime.now().year
+    anio_actual = ahora_chile().year
 
     for num_lote, lote_patentes in enumerate(lotes, 1):
         grupo_lote = dict(lote_patentes)

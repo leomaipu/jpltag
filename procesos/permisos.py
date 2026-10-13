@@ -58,8 +58,9 @@ PuedeEditarPlantillaMixin = _mixin_por_permiso(
     "Juzgado (Jueza/Juez no tiene acceso a esta pantalla).",
 )
 
-# TODO(permisos-agenda): este mixin no se usa todavía — AgendaView (en
-# views.py) revisa perfil.puede_editar_agenda() a mano dentro de su
+# TODO(permisos-agenda): este mixin lo usan las vistas de editar y eliminar
+# un bloque, pero AgendaView (en
+# views.py) todavía revisa perfil.puede_editar_agenda() a mano dentro de su
 # post(), en vez de heredar de PuedeEditarAgendaMixin. Hoy da lo mismo:
 # los 4 roles tienen "agenda: editar" en True en PERMISOS_POR_ROL (ver
 # nucleo/models.py), así que no hay ningún caso real que lo distinga. Si

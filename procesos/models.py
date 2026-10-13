@@ -21,6 +21,10 @@ class GeneracionCartas(models.Model):
         OK = "OK", "Completado"
         CON_ERRORES = "CON_ERRORES", "Completado con errores"
         FALLIDO = "FALLIDO", "Falló"
+        # Se anota al reservar cupos de la agenda y se cierra al terminar. Si
+        # el proceso muere en el medio (timeout, falta de memoria, reinicio)
+        # queda así, y desde la agenda se pueden devolver sus cupos.
+        EN_CURSO = "EN_CURSO", "En curso"
 
     juzgado = models.ForeignKey(Juzgado, on_delete=models.PROTECT, related_name="generaciones")
     usuario = models.ForeignKey(
@@ -49,6 +53,10 @@ class GeneracionCartas(models.Model):
     avisos = models.JSONField(
         default=dict, blank=True,
         help_text="Avisos del motor (filas sin patente, disposiciones sin multa, etc.), para mostrar en el resultado.",
+    )
+    cupos_por_bloque = models.JSONField(
+        default=dict, blank=True,
+        help_text="Cupos que tomó esta corrida de cada bloque de la agenda: {id del bloque: cantidad}.",
     )
     estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.OK)
     mensaje_error = models.TextField(blank=True)

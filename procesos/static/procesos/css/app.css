@@ -2038,3 +2038,350 @@ form.enviando .pasos {
 .procesando__cancelar {
   margin-top: 16px;
 }
+
+
+/* ── Mantenedor de bloques horarios ─────────────────────────────────── */
+.altas {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.campos-fila {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.campos-fila .campo + .campo {
+  margin-top: 0;
+}
+
+.serie__resumen {
+  min-height: 1.5em;
+  margin: 16px 0 4px;
+  color: var(--turquesa-texto);
+  font-weight: 500;
+}
+
+.hora--fila {
+  grid-template-columns: auto minmax(0, 1fr) 44px;
+  grid-template-areas:
+    "hora cupos editar"
+    "medidor medidor medidor";
+  gap: 4px 12px;
+  scroll-margin-top: calc(var(--alto-barra) + 24px);
+}
+
+.hora--fila .hora__hora { grid-area: hora; }
+.hora--fila meter { grid-area: medidor; }
+.hora--fila .hora__cupos { grid-area: cupos; justify-self: end; }
+.hora--fila .hora__editar { grid-area: editar; }
+
+.hora--fila:target {
+  animation: resaltar 1.6s ease-out;
+}
+
+@keyframes resaltar {
+  from { background: var(--tinte); box-shadow: 0 0 0 8px var(--tinte); border-radius: 12px; }
+  to { background: transparent; box-shadow: 0 0 0 8px transparent; }
+}
+
+.hora__editar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--tinte);
+  color: var(--azul);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.hora__editar:hover {
+  background: var(--azul);
+  color: #fff;
+}
+
+.hora__lleno {
+  margin-left: 8px;
+  color: var(--magenta-texto);
+  font-weight: 500;
+}
+
+.historial {
+  margin-top: 24px;
+}
+
+.historial__lista {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-2);
+}
+
+.historial__lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-top: 1px solid var(--linea);
+}
+
+.historial__lista li:first-child {
+  border-top: 0;
+}
+
+.volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: -8px 0 4px -6px;
+  padding: 0 12px 0 6px;
+  border-radius: 999px;
+  color: var(--azul);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.volver:hover {
+  background: var(--tinte);
+}
+
+.ficha {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 18px 18px 20px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-radius: var(--r-tope) var(--r-tope) var(--r-base) var(--r-base);
+  box-shadow: var(--sombra);
+}
+
+.ficha__fecha {
+  display: grid;
+  justify-items: center;
+  line-height: 1;
+}
+
+.ficha__hora {
+  margin-bottom: 12px;
+  font-size: clamp(1.4rem, 1.1rem + 1.4vw, 1.9rem);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+}
+
+.ficha__cupos {
+  margin-top: 8px;
+  color: var(--tinta-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ficha__cupos strong {
+  color: var(--azul);
+  font-weight: 500;
+}
+
+.aviso-caja {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--tinte);
+  border-radius: 18px 18px 8px 8px;
+  color: var(--azul);
+}
+
+.aviso-caja .ico {
+  flex: none;
+  margin-top: 2px;
+}
+
+.paso-numero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.paso-numero input[type="number"] {
+  width: 6rem;
+  min-height: 56px;
+  text-align: center;
+  font-size: 1.7rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+
+.paso-numero__boton {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border: 1.5px solid var(--azul);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--azul);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.paso-numero__boton:hover {
+  background: var(--azul);
+  color: #fff;
+}
+
+.paso-numero__boton[hidden] {
+  display: none;
+}
+
+.avanzado--interno {
+  margin-top: 22px;
+  box-shadow: none;
+  background: var(--fondo);
+}
+
+.zona {
+  margin-top: 28px;
+}
+
+.zona__fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 14px 0;
+}
+
+.zona__fila + .zona__fila {
+  border-top: 1px solid var(--linea);
+}
+
+.zona__fila p {
+  flex: 1 1 280px;
+  max-width: 60ch;
+}
+
+.btn--peligro {
+  border-color: var(--magenta-texto);
+  color: var(--magenta-texto);
+}
+
+.btn--peligro:hover {
+  background: var(--magenta-texto);
+  border-color: var(--magenta-texto);
+  color: #fff;
+}
+
+.btn--peligro-lleno {
+  background: var(--magenta-texto);
+  border-color: var(--magenta-texto);
+  color: #fff;
+}
+
+.btn--peligro-lleno:hover {
+  background: #8f014d;
+  border-color: #8f014d;
+}
+
+.acciones .btn--primario {
+  order: -1;
+}
+
+@media (min-width: 720px) {
+  .campos-fila {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .acciones .btn--primario {
+    order: 0;
+  }
+}
+
+/* dos botones en la barra de acción fija: lado a lado, incluso en teléfono */
+.acciones--doble {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  align-items: center;
+}
+
+.acciones--doble .btn--primario {
+  order: 0;
+}
+
+.ficha,
+.aviso-caja,
+.zona {
+  max-width: 820px;
+}
+
+.avanzado__cuerpo > .campo__ayuda {
+  margin-bottom: 14px;
+}
+
+input[readonly] {
+  background: var(--tinte);
+  color: var(--tinta-2);
+  cursor: not-allowed;
+}
+
+.campos-fila + .campo {
+  margin-top: 18px;
+}
+
+.serie__resumen--error {
+  color: var(--magenta-texto);
+}
+
+.aviso-caja__salida {
+  max-width: 820px;
+  margin: -8px 0 20px;
+  padding: 0 4px;
+  color: var(--tinta-2);
+}
+
+.origen {
+  max-width: 820px;
+  margin-top: 20px;
+}
+
+.origen__sub {
+  margin: 18px 0 6px;
+  font-size: 1rem;
+}
+
+.historial__lista li > span:only-child {
+  flex: 1;
+}
+
+input[readonly] {
+  border-style: dashed;
+}
+
+@media (forced-colors: active) {
+  input[readonly] { border-style: dashed; }
+  meter { forced-color-adjust: none; }
+}
+
+/* El aviso acompaña a la persona cuando la página salta a un bloque. */
+.mensajes--ancla {
+  position: sticky;
+  top: calc(var(--alto-barra) + 8px);
+  z-index: 15;
+  transition: opacity 0.4s;
+}
+
+.mensajes--ancla.mensajes--saliendo {
+  opacity: 0;
+}
+
+.mensajes--retirado {
+  display: none;
+}

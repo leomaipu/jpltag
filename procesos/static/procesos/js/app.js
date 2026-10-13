@@ -77,6 +77,110 @@
     if (form) { form.classList.remove("enviando"); }
   });
 
+  // Mantenedor de bloques: botones − / + y vista en vivo de los cupos.
+  (function () {
+    var vista = doc.querySelector("[data-vista-cupos]");
+    var total = doc.getElementById("id_cupos_totales");
+    if (!vista || !total) { return; }
+    var usadosCampo = doc.getElementById("id_cupos_usados");
+    var medidor = vista.querySelector("meter");
+    var tUsados = vista.querySelector("[data-vista-usados]");
+    var tTotal = vista.querySelector("[data-vista-total]");
+    var original = parseInt(vista.getAttribute("data-usados"), 10) || 0;
+
+    function entero(campo, defecto) {
+      var n = parseInt(campo && campo.value, 10);
+      return isNaN(n) ? defecto : n;
+    }
+    function pintar() {
+      var t = Math.max(entero(total, 1), 1);
+      var u = usadosCampo && usadosCampo.value !== "" ? entero(usadosCampo, original) : original;
+      if (medidor) {
+        medidor.max = t;
+        medidor.low = Math.floor(t * 0.7);
+        medidor.high = Math.floor(t * 0.95);
+        medidor.value = Math.min(u, t);
+      }
+      if (tUsados) { tUsados.textContent = u; }
+      if (tTotal) { tTotal.textContent = t; }
+    }
+    doc.querySelectorAll("[data-paso]").forEach(function (b) {
+      b.hidden = false;
+      b.addEventListener("click", function () {
+        var minimo = parseInt(total.min, 10) || 1;
+        var maximo = parseInt(total.max, 10) || 500;
+        var nuevo = entero(total, minimo) + parseInt(b.getAttribute("data-paso"), 10);
+        total.value = Math.min(Math.max(nuevo, minimo), maximo);
+        pintar();
+      });
+    });
+    total.addEventListener("input", pintar);
+    if (usadosCampo) { usadosCampo.addEventListener("input", pintar); }
+  })();
+
+  // Serie de horarios: cuántos bloques saldrían, antes de crearlos.
+  (function () {
+    var form = doc.querySelector("[data-serie]");
+    if (!form) { return; }
+    var salida = form.querySelector("[data-serie-resumen]");
+    var anuncio = form.querySelector("[data-serie-anuncio]");
+    var MAXIMO = 48;
+    function minutos(texto) {
+      var m = /^(\d{1,2}):(\d{2})/.exec(texto || "");
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+    }
+    function hhmm(n) {
+      return ("0" + Math.floor(n / 60)).slice(-2) + ":" + ("0" + (n % 60)).slice(-2);
+    }
+    function resumir() {
+      var d = minutos(form.elements.desde.value);
+      var h = minutos(form.elements.hasta.value);
+      var c = parseInt(form.elements.cada.value, 10);
+      var texto = "", problema = false;
+      if (d === null || h === null || isNaN(c) || c < 5) {
+        texto = "";
+      } else if (h < d) {
+        texto = "La última audiencia no puede ser antes que la primera.";
+        problema = true;
+      } else {
+        var n = Math.floor((h - d) / c) + 1;
+        if (n > MAXIMO) {
+          texto = "Así saldrían " + n + " bloques; el máximo por vez es " + MAXIMO + ". Sube el intervalo o acorta el rango.";
+          problema = true;
+        } else {
+          var horas = [];
+          for (var m = d; m <= h; m += c) { horas.push(hhmm(m)); }
+          var lista = horas.length > 4
+            ? horas.slice(0, 3).join(", ") + " … " + horas[horas.length - 1]
+            : horas.join(", ");
+          texto = horas.length + (horas.length === 1 ? " bloque: " : " bloques: ") + lista + ".";
+        }
+      }
+      salida.textContent = texto;
+      salida.classList.toggle("serie__resumen--error", problema);
+      return texto;
+    }
+    form.addEventListener("input", resumir);
+    // Al lector de pantalla se le avisa al terminar de editar un campo, no en cada tecla.
+    form.addEventListener("change", function () { if (anuncio) { anuncio.textContent = resumir() || ""; } });
+    resumir();
+  })();
+
+  // Tras guardar un bloque la página salta a su fila: el aviso queda a la
+  // vista un momento aunque el bloque esté más abajo, y se retira solo.
+  (function () {
+    var avisos = doc.querySelector(".mensajes");
+    var ancla = window.location.hash ? window.location.hash.slice(1) : "";
+    // getElementById y no :target: al cargar el script, el navegador aún no lo resolvió.
+    if (!avisos || !ancla || !doc.getElementById(decodeURIComponent(ancla))) { return; }
+    if (avisos.querySelector(".error, .warning")) { return; }   // los errores no se retiran
+    avisos.classList.add("mensajes--ancla");
+    window.setTimeout(function () {
+      avisos.classList.add("mensajes--saliendo");
+      window.setTimeout(function () { avisos.classList.add("mensajes--retirado"); }, 450);
+    }, 6000);
+  })();
+
   // Si la persona vuelve con "Atrás", el navegador puede restaurar la página
   // con el estado de espera encendido: se apaga.
   window.addEventListener("pageshow", function (e) {

@@ -1,0 +1,16 @@
+{% extends "procesos/base.html" %}
+{% load static %}
+{% block titulo %}Eliminar bloque{% endblock %}
+{% block marca %}Agenda{% endblock %}
+{% block contenido %}
+<a class="volver" href="{% url 'procesos:bloque_editar' bloque.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#izquierda"/></svg>Volver al bloque</a>
+<section class="aviso-pagina">
+  <h1>¿Eliminar este bloque?</h1>
+  <p>Se elimina el bloque del <strong>{{ bloque.fecha|date:"l j \d\e F"|lower }}, a las {{ bloque.hora|time:"H:i" }}</strong>, con sus {{ bloque.cupos_totales }} cupos. Ninguna carta lo ha usado. Esto no se puede deshacer, pero puedes volver a crearlo.</p>
+  <form method="post" class="acciones acciones--izq">
+    {% csrf_token %}
+    <button type="submit" class="btn btn--peligro-lleno"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#papelera"/></svg>Sí, eliminar</button>
+    <a class="btn" href="{% url 'procesos:bloque_editar' bloque.pk %}">No, volver</a>
+  </form>
+</section>
+{% endblock %}

@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class TipoCarta(models.TextChoices):
@@ -103,9 +104,31 @@ class Juzgado(models.Model):
         return archivo if archivo else None
 
 
+def ahora_local():
+    """La fecha y hora de hoy en Chile (settings.TIME_ZONE), no en UTC."""
+    return timezone.localtime()
+
+
+class BloqueQuerySet(models.QuerySet):
+    def vigentes(self, ahora=None):
+        """Los bloques que todavía no empiezan: de hoy en adelante, y los de
+        hoy solo si su hora no pasó."""
+        ahora = ahora or ahora_local()
+        return self.filter(
+            models.Q(fecha__gt=ahora.date())
+            | models.Q(fecha=ahora.date(), hora__gt=ahora.time().replace(second=0, microsecond=0))
+        )
+
+    def pasados(self, ahora=None):
+        ahora = ahora or ahora_local()
+        return self.exclude(pk__in=self.vigentes(ahora).values("pk"))
+
+
 class BloqueHorario(models.Model):
     """Un bloque de audiencia con cupos (Módulo 3 — Agenda con cupos).
     Reemplaza la lista fija AGENDA_AUDIENCIAS de cada script."""
+
+    objects = BloqueQuerySet.as_manager()
 
     juzgado = models.ForeignKey(Juzgado, on_delete=models.CASCADE, related_name="bloques_horario")
     fecha = models.DateField()
@@ -118,7 +141,13 @@ class BloqueHorario(models.Model):
         verbose_name_plural = "Bloques de horario"
         ordering = ["fecha", "hora"]
         constraints = [
-            models.UniqueConstraint(fields=["juzgado", "fecha", "hora"], name="bloque_unico_por_juzgado")
+            models.UniqueConstraint(fields=["juzgado", "fecha", "hora"], name="bloque_unico_por_juzgado"),
+            # Un bloque nunca tiene más cartas que cupos: si dos procesos
+            # intentan sobrevenderlo, la base lo rechaza en vez de esconderlo.
+            models.CheckConstraint(
+                condition=models.Q(cupos_usados__lte=models.F("cupos_totales")),
+                name="bloque_usados_no_supera_totales",
+            ),
         ]
 
     def __str__(self):
@@ -127,6 +156,45 @@ class BloqueHorario(models.Model):
     @property
     def cupos_disponibles(self):
         return max(self.cupos_totales - self.cupos_usados, 0)
+
+    @property
+    def ya_paso(self):
+        """Su hora ya pasó: queda en el historial, sin edición."""
+        ahora = ahora_local()
+        return (self.fecha, self.hora) <= (ahora.date(), ahora.time().replace(second=0, microsecond=0))
+
+    @property
+    def version(self):
+        """Huella de lo que se edita (fecha, hora, cupos): el formulario la
+        lleva oculta para detectar que otra persona lo cambió mientras tanto."""
+        import hashlib
+        base = f"{self.fecha:%Y-%m-%d}|{self.hora:%H:%M}|{self.cupos_totales}"
+        return hashlib.sha1(base.encode()).hexdigest()[:12]
+
+
+class BloqueAjuste(models.Model):
+    """Corrección manual de los cupos ocupados de un bloque. Es la única forma
+    de «devolver» cupos, así que deja quién, cuándo y por qué."""
+
+    juzgado = models.ForeignKey(Juzgado, on_delete=models.CASCADE, related_name="ajustes_de_bloque")
+    bloque = models.ForeignKey(BloqueHorario, null=True, on_delete=models.SET_NULL, related_name="ajustes")
+    # Copia de la fecha y hora: el registro sobrevive aunque el bloque se elimine.
+    fecha = models.DateField()
+    hora = models.TimeField()
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    nombre_usuario = models.CharField(max_length=150)
+    creado = models.DateTimeField(auto_now_add=True)
+    desde = models.PositiveSmallIntegerField()
+    hasta = models.PositiveSmallIntegerField()
+    motivo = models.CharField(max_length=200)
+
+    class Meta:
+        verbose_name = "Corrección de cupos"
+        verbose_name_plural = "Correcciones de cupos"
+        ordering = ["-creado"]
+
+    def __str__(self):
+        return f"{self.fecha} {self.hora:%H:%M}: {self.desde}→{self.hasta} por {self.nombre_usuario}"
 
 
 class Rol(models.TextChoices):

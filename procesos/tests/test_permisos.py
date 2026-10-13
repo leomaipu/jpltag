@@ -8,12 +8,17 @@ resultados de JPL2) se prueba aparte, en test_aislamiento_juzgados.py —
 depende del objeto pedido, no solo del rol.
 """
 
+from datetime import date, timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from nucleo.models import Rol
 
 from .fixtures import crear_juzgado, crear_usuario, ingresar
+
+
+FECHA_FUTURA = date.today() + timedelta(days=30)  # relativa: la agenda no admite fechas pasadas
 
 
 class SinPerfilTest(TestCase):
@@ -86,7 +91,7 @@ class PermisoAgendaTest(TestCase):
         crear_usuario("jueza2", rol=Rol.JUEZ, juzgado=self.juzgado)
         ingresar(self.client, "jueza2")
         resp = self.client.post("/agenda/", {
-            "fecha": "2026-11-05", "hora": "09:00", "cupos_totales": 10,
+            "fecha": FECHA_FUTURA.isoformat(), "hora": "09:00", "cupos_totales": 10,
         }, follow=True)
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(self.juzgado.bloques_horario.filter(fecha="2026-11-05").exists())
+        self.assertTrue(self.juzgado.bloques_horario.filter(fecha=FECHA_FUTURA).exists())

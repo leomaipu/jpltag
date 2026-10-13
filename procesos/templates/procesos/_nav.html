@@ -8,7 +8,7 @@
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#cartas"/></svg><span>Cartas</span>
 </a>
 {% endif %}
-<a href="{% url 'procesos:agenda' %}" {% if actual == 'agenda' %}aria-current="page"{% endif %}>
+<a href="{% url 'procesos:agenda' %}" {% if actual == 'agenda' or actual == 'bloque_editar' or actual == 'bloque_eliminar' %}aria-current="page"{% endif %}>
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg><span>Agenda</span>
 </a>
 {% if user.perfil.puede_editar_plantilla %}

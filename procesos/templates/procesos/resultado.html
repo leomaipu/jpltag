@@ -4,7 +4,7 @@
 {% block marca %}Cartas{% endblock %}
 {% block contenido %}
 <header class="cab">
-  <h1>{% if generacion.estado == "OK" %}Cartas listas{% elif generacion.estado == "CON_ERRORES" %}Terminó con errores{% else %}No se pudo generar{% endif %}</h1>
+  <h1>{% if generacion.estado == "OK" %}Cartas listas{% elif generacion.estado == "CON_ERRORES" %}Terminó con errores{% elif generacion.estado == "EN_CURSO" %}Generación en curso{% else %}No se pudo generar{% endif %}</h1>
   <p>{{ generacion.get_tipo_carta_display }}{% if mes_nombre %} de {{ mes_nombre }} {{ generacion.anio_periodo }}{% endif %}. {{ generacion.juzgado.nombre }}.</p>
   <div class="tribarra"><i></i></div>
 </header>
@@ -19,6 +19,7 @@
       <p>patente{{ generacion.total_patentes|pluralize }}, una carta cada una</p>
       <p class="mt">
         {% if generacion.estado == "OK" %}<span class="estado">Completado</span>
+        {% elif generacion.estado == "EN_CURSO" %}<span class="estado estado--aviso">Sin terminar: si pasó mucho rato, se interrumpió</span>
         {% else %}<span class="estado estado--aviso">Completado con errores</span>{% endif %}
       </p>
       {% endif %}

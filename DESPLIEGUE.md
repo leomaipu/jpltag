@@ -249,6 +249,13 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   habilitar ningún dominio externo. `collectstatic` ya corre al construir la
   imagen (`Dockerfile`); si en el servidor la pantalla se ve sin estilos,
   revisar primero que esa etapa no falló.
+- Este despliegue aplica migraciones nuevas en la agenda (`nucleo` 0005–0006,
+  `procesos` 0003–0004). La 0005 acota a su total cualquier bloque que tenga
+  más cupos ocupados que totales (deja un aviso en el log con los ids) antes
+  de que la 0006 agregue la restricción. Una generación de cartas que quede
+  «En curso» más de 10 minutos (proceso muerto por tiempo agotado o reinicio)
+  se resuelve desde la pantalla del bloque con «Devolver los cupos de esa
+  generación».
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):
   `sudo GUNICORN_WORKERS=5 bash 13-app-jpltag.sh`.
 

@@ -34,6 +34,7 @@
           <span class="fila__titulo">
             {{ g.get_tipo_carta_display }}
             {% if g.estado == "OK" %}<span class="estado">Lista</span>
+            {% elif g.estado == "EN_CURSO" %}<span class="estado estado--aviso">En curso</span>
             {% elif g.estado == "CON_ERRORES" %}<span class="estado estado--aviso">Con errores</span>
             {% else %}<span class="estado estado--error">Falló</span>{% endif %}
           </span>

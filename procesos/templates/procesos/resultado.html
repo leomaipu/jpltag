@@ -42,7 +42,8 @@
       {% if generacion.fecha_sentencia %}<div><dt>Fecha de la sentencia</dt><dd>{{ generacion.fecha_sentencia|date:"d/m/Y" }}</dd></div>{% endif %}
       <div><dt>Filas con N° de parte repetido (excluidas)</dt><dd>{{ generacion.total_duplicados }}</dd></div>
       <div><dt>Patentes sin causa válida (excluidas)</dt><dd>{{ generacion.total_sin_causas_validas }}</dd></div>
-      {% if generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
+      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>A coordinar con el Juzgado (agenda desactivada)</dd></div>
+      {% elif generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
       <div><dt>Generada</dt><dd>{{ generacion.creado|date:"j M Y, H:i"|lower }}</dd></div>
       <div><dt>Por</dt><dd>{{ generacion.usuario.get_full_name|default:generacion.usuario.username }}</dd></div>
     </dl>

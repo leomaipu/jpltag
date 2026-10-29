@@ -35,7 +35,7 @@ def _texto_descargado(client, archivo):
     return texto_de(Document(io.BytesIO(b"".join(resp.streaming_content))))
 
 
-@override_settings(MEDIA_ROOT=_TMP_MEDIA, SALIDAS_ROOT=_TMP_SALIDAS)
+@override_settings(MEDIA_ROOT=_TMP_MEDIA, SALIDAS_ROOT=_TMP_SALIDAS, JPLTAG_AGENDA_ACTIVA=True)
 class TiposDeCartaTest(TestCase):
     @classmethod
     def tearDownClass(cls):

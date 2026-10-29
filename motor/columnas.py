@@ -7,8 +7,16 @@ por patrones en minúscula en vez de un nombre de columna exacto.
 """
 
 import datetime as _dt
+import re
 
 import pandas as pd
+
+# El ROL de la causa viene en una columna que la nómina de la DAF trae SIN
+# encabezado (pandas la lee como "Unnamed: 20"), con valores como
+# "3090675-MUN". Se reconoce por su contenido y se renombra a COLUMNA_ROL_MUN
+# (ver lectura.leer_nomina), que es lo primero que busca MAPEO["ROL"].
+ROL_MUNICIPAL = re.compile(r"-MUN$", re.IGNORECASE)
+COLUMNA_ROL_MUN = "rol (-mun)"
 
 MAPEO = {
     "NRO_PARTE": ["número de parte", "nro parte", "numero de parte"],
@@ -18,7 +26,7 @@ MAPEO = {
     "DISPOSICION": ["disposiciones infringidas", "disposicion", "disposición"],
     "PATENTE": ["patente"],
     "DIG_PAT": ["digito patente", "digito pate", "dígito patente"],
-    "ROL": ["rol", "folio proceso", "folio_proceso", "nro rol"],
+    "ROL": [COLUMNA_ROL_MUN, "rol", "folio proceso", "folio_proceso", "nro rol"],
     "REG": ["folio carta tramite", "reg n", "registro"],
     "RUT": ["cedula de identidad", "cedula", "rut"],
     "DV": ["digito verifcador", "digito verif", "dígito verif", "dv"],
@@ -30,6 +38,17 @@ MAPEO = {
     "MARCA": ["marca del vehiculo", "marca del", "marca"],
     "MODELO": ["modelo del vehiculo", "modelo del", "modelo"],
 }
+
+
+def columna_rol_municipal(df):
+    """La columna cuyos valores (no vacíos) terminan todos en -MUN, o None.
+    Con encabezado o sin él: se reconoce por lo que trae."""
+    for col in df.columns:
+        valores = df[col].astype(str).str.strip()
+        valores = valores[valores != ""]
+        if len(valores) and valores.str.contains(ROL_MUNICIPAL).all():
+            return col
+    return None
 
 
 def get_col(row, key):

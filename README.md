@@ -82,18 +82,35 @@ carta sale con una línea punteada para firmar a mano. Cargos de quien
 firma disponibles: Secretario, Secretaria, Secretario abogado, Secretaria
 abogada.
 
+En el bloque de firma va el timbre arriba, la firma (o la línea punteada)
+y debajo el nombre y el cargo, centrados. Cada imagen se achica hasta caber
+en su caja sin deformarse (`motor/plantilla.py`, `CAJA_*_IN`): timbre de
+hasta 0,5" de alto y firma de hasta 0,55" (0,8" si el juzgado no cargó
+timbre aparte, como el 3er JPL, que sube firma y timbre en una sola
+imagen). Así una imagen alta no empuja la tabla de multas a otra hoja.
+
 Cuántas infracciones caben en una hoja (`Juzgado.max_causas_por_pagina`,
-12 por defecto): se midió con las plantillas por defecto y la nómina real
-de febrero-2026 — caben 14 con firma + sello (la más alta) y 16 ya
-desborda; si una patente tiene más, la carta sale en varias partes
+12 por defecto): se mide con LibreOffice (`motor/tests/test_paginas.py`,
+que se salta si no está instalado) con las plantillas por defecto, timbre y
+firma apilados y textos de 2 líneas — caben 13 en todas y el peor caso no
+admite 14; si una patente tiene más, la carta sale en varias partes
 completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
 firma. Con una plantilla propia más alta o más compacta, ajustar desde
 `/admin/`.
 
-**Rol:** la nómina que entrega la DAF no trae el Rol/folio de causa (solo
-el N° de parte), así que la columna Rol imprime `PENDIENTE` hasta que esa
-columna venga en la nómina (`motor/cartas.formatear_rol`). Igual con
-`Reg N°` («folio carta trámite»).
+**Rol:** la nómina de la DAF trae el ROL de cada causa en una columna sin
+encabezado, con valores como `3090675-MUN`. `motor/lectura.leer_nomina` la
+reconoce por su contenido (todos sus valores terminan en `-MUN`) y la
+carta lo imprime tal cual (`motor/cartas.formatear_rol`). Sin esa columna,
+la columna Rol imprime `PENDIENTE`. `Reg N°` sigue en «folio carta trámite»
+mientras la nómina no lo traiga.
+
+**Agenda:** por ahora la generación de cartas no usa la agenda
+(`JPLTAG_AGENDA_ACTIVA`, apagada): no se toman cupos y toda citación,
+también la de «Citación y sentencia», sale «en fecha y hora a coordinar
+con el Juzgado». La pantalla de la Agenda sigue disponible para preparar
+bloques. Cuando la nómina traiga la fecha de citación se decidirá cómo
+volver a enlazarlas.
 
 ### Plantillas con control de cambios y comentarios
 

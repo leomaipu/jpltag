@@ -5,7 +5,7 @@
 {% block contenido %}
 <header class="cab">
   <h1>Agenda de audiencias</h1>
-  <p>{% if juzgado %}{{ juzgado.nombre }}. {% endif %}Cada citación toma un cupo del primer bloque con espacio.</p>
+  <p>{% if juzgado %}{{ juzgado.nombre }}. {% endif %}{% if agenda_activa %}Cada citación toma un cupo del primer bloque con espacio.{% else %}Por ahora las cartas no usan la agenda: las citaciones salen «a coordinar con el Juzgado». Los bloques se pueden seguir preparando.{% endif %}</p>
   <div class="tribarra"><i></i></div>
 </header>
 

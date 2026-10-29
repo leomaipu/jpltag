@@ -12,6 +12,7 @@ urlpatterns = [
     path("subir/", views.SubirNominaView.as_view(), name="subir_nomina"),
     path("resultado/<int:pk>/", views.ResultadoView.as_view(), name="resultado"),
     path("descargar/<int:pk>/", views.DescargarArchivoView.as_view(), name="descargar"),
+    path("descargar/<int:pk>/zip/", views.DescargarZipView.as_view(), name="descargar_zip"),
     path("agenda/", views.AgendaView.as_view(), name="agenda"),
     path("agenda/bloque/<int:pk>/", views.BloqueEditarView.as_view(), name="bloque_editar"),
     path("agenda/bloque/<int:pk>/eliminar/", views.BloqueEliminarView.as_view(), name="bloque_eliminar"),

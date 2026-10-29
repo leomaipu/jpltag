@@ -101,11 +101,10 @@ class PanelView(PerfilRequeridoMixin, View):
 # ══════════════════════════════════════════════════════════════════════
 
 class SubirNominaView(PuedeGenerarCartasMixin, View):
-    def _pantalla(self, request, perfil, juzgado, form, *, pide_confirmacion=False):
+    def _pantalla(self, request, perfil, juzgado, form, *, repetido=None):
         return render(request, "procesos/subir_nomina.html", {
             "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
-            "pide_confirmacion": pide_confirmacion,
-            "max_cartas": settings.JPLTAG_MAX_CARTAS_POR_CORRIDA,
+            "repetido": repetido,
         })
 
     def get(self, request):
@@ -129,23 +128,35 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
 
         datos = form.cleaned_data
         solicitud = generacion.SolicitudGeneracion(
-            archivo_nomina=datos["nomina"],
-            archivo_tipo_causas=datos.get("tipo_causas"),
             tipo_carta=datos["tipo_carta"],
             fecha_sentencia=datos.get("fecha_audiencia"),
             nombre_firmante=datos["nombre_firmante"],
             cargo_firma=datos["cargo_firma"],
             n_cartas_paquete=datos.get("n_cartas_paquete") or 0,
-            confirmar_repeticion=datos.get("confirmar_repeticion", False),
+            repetidas=datos.get("repetidas") or "",
         )
+        if datos.get("nomina"):
+            solicitud.archivo_nomina = datos["nomina"]
+            solicitud.nombre_nomina = datos["nomina"].name
+            solicitud.archivo_tipo_causas = datos.get("tipo_causas")
+        else:
+            guardada = generacion.leer_nomina_guardada(datos["nomina_guardada"], juzgado, request.user)
+            if guardada is None:
+                form.add_error("nomina", "La nómina guardada ya no está disponible: vuelve a elegir el Excel.")
+                return self._pantalla(request, perfil, juzgado, form)
+            solicitud.nomina_guardada, solicitud.nombre_nomina = guardada
+
         try:
-            corrida = generacion.generar(juzgado, request.user, solicitud)
+            corrida = generacion.preparar(juzgado, request.user, solicitud)
+        except generacion.EnvioRepetido as exc:
+            form = SubirNominaForm(initial={**datos, "nomina_guardada": exc.token, "repetidas": None})
+            return self._pantalla(request, perfil, juzgado, form, repetido={
+                "mensaje": str(exc), "nombre_nomina": solicitud.nombre_nomina,
+                "faltan": exc.n_total - exc.n_repetidas,
+            })
         except generacion.GeneracionRechazada as exc:
             form.add_error(None, str(exc))
-            return self._pantalla(
-                request, perfil, juzgado, form,
-                pide_confirmacion=isinstance(exc, generacion.EnvioRepetido),
-            )
+            return self._pantalla(request, perfil, juzgado, form)
         return redirect("procesos:resultado", pk=corrida.pk)
 
 
@@ -153,33 +164,59 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
 # Resultado y descarga
 # ══════════════════════════════════════════════════════════════════════
 
+def _archivo_del_usuario(request, pk):
+    archivo = get_object_or_404(ArchivoGenerado.objects.select_related("generacion__juzgado"), pk=pk)
+    if not request.user.perfil.tiene_acceso_a(archivo.generacion.juzgado):
+        raise PermissionDenied("No tienes acceso a este juzgado.")
+    ruta_abs = Path(settings.SALIDAS_ROOT) / archivo.ruta
+    if not ruta_abs.is_file():
+        raise Http404("El archivo ya no está disponible.")
+    return archivo, ruta_abs
+
+
 class ResultadoView(PuedeGenerarCartasMixin, View):
+    # Mientras está en cola o en curso, la pantalla se recarga sola.
+    RECARGAR_CADA = 10  # s
+
     def get(self, request, pk):
         perfil = request.user.perfil
-        generacion = get_object_or_404(
-            GeneracionCartas.objects.select_related("juzgado", "usuario"), pk=pk,
-        )
-        if not perfil.tiene_acceso_a(generacion.juzgado):
+        corrida = get_object_or_404(GeneracionCartas.objects.select_related("juzgado", "usuario"), pk=pk)
+        if not perfil.tiene_acceso_a(corrida.juzgado):
             raise PermissionDenied("No tienes acceso a este juzgado.")
-        archivos = generacion.archivos.all()
-        mes_nombre = MESES[generacion.mes_periodo - 1] if generacion.mes_periodo else None
+        activa = corrida.estado in generacion.ESTADOS_ACTIVOS
         return render(request, "procesos/resultado.html", {
-            "generacion": generacion, "archivos": archivos, "mes_nombre": mes_nombre,
+            "generacion": corrida,
+            "archivos": corrida.archivos.all(),
+            "mes_nombre": MESES[corrida.mes_periodo - 1] if corrida.mes_periodo else None,
+            "recargar_cada": self.RECARGAR_CADA if activa else None,
+            "antes_en_la_cola": generacion.corridas_antes_en_la_cola(corrida),
+            "interrumpida": generacion.corrida_interrumpida(corrida),
         })
 
 
 class DescargarArchivoView(PuedeGenerarCartasMixin, View):
     def get(self, request, pk):
-        perfil = request.user.perfil
-        archivo = get_object_or_404(
-            ArchivoGenerado.objects.select_related("generacion__juzgado"), pk=pk,
-        )
-        if not perfil.tiene_acceso_a(archivo.generacion.juzgado):
-            raise PermissionDenied("No tienes acceso a este juzgado.")
-        ruta_abs = Path(settings.SALIDAS_ROOT) / archivo.ruta
-        if not ruta_abs.exists():
-            raise Http404("El archivo ya no está disponible.")
+        archivo, ruta_abs = _archivo_del_usuario(request, pk)
         return FileResponse(open(ruta_abs, "rb"), as_attachment=True, filename=archivo.nombre_descarga)
+
+
+class DescargarZipView(PuedeGenerarCartasMixin, View):
+    """Un paquete de cartas comprimido en .zip: se arma al pedirlo, en el
+    directorio temporal (TMPDIR), y no queda guardado."""
+
+    def get(self, request, pk):
+        import tempfile
+        import zipfile
+
+        archivo, ruta_abs = _archivo_del_usuario(request, pk)
+        comprimido = tempfile.TemporaryFile()
+        with zipfile.ZipFile(comprimido, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(ruta_abs, arcname=archivo.nombre_descarga)
+        comprimido.seek(0)
+        return FileResponse(
+            comprimido, as_attachment=True, filename=f"{Path(archivo.nombre_descarga).stem}.zip",
+            content_type="application/zip",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════

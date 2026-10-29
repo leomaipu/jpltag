@@ -20,6 +20,9 @@ import environ
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# `manage.py test`: sin worker, sin manifiesto de estáticos, registro en silencio.
+EN_PRUEBAS = len(sys.argv) > 1 and sys.argv[1] == "test"
+
 env = environ.Env(
     DJANGO_DEBUG=(bool, False),
 )
@@ -210,7 +213,7 @@ STORAGES = {
 # Las pruebas no corren collectstatic: sin manifiesto, {% static %} fallaría.
 # El camino de producción (manifiesto + hash) se prueba aparte en
 # procesos/tests/test_diseno.py, ejecutando collectstatic de verdad.
-if len(sys.argv) > 1 and sys.argv[1] == "test":
+if EN_PRUEBAS:
     STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -223,18 +226,34 @@ MEDIA_ROOT = BASE_DIR / "media"
 # ese juzgado (ver nucleo.models.PerfilUsuario.tiene_acceso_a).
 SALIDAS_ROOT = BASE_DIR / "salidas"
 
-# Topes de una generación de cartas (procesos/generacion.py). La generación
-# corre dentro de la petición web y el servidor la corta a los 180 s
-# (GUNICORN_CMD_ARGS=--timeout 180 en el 13-app-jpltag.sh; HAProxy a los
-# 190 s). Medido con la nómina real (feb-2026, 47.602 filas): ~20 s fijos
-# en leer y agrupar, ~0,10 s por carta en paquetes de 50 y 0,13–0,28 s por
-# carta si todo va a un solo archivo (combinar Word crece más que lineal:
-# 600 cartas en un archivo = 170 s). Con 500 cartas en paquetes de 100 la
-# corrida queda bajo ~90 s, con margen para un servidor más lento.
-JPLTAG_MAX_CARTAS_POR_CORRIDA = env.int("JPLTAG_MAX_CARTAS_POR_CORRIDA", default=500)
-JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default=100)
+# Generación de cartas (procesos/generacion.py): la web prepara y deja la
+# corrida en cola; el worker (manage.py procesar_generaciones, contenedor
+# aparte) arma las cartas sin el límite de 180 s de una petición. Un
+# archivo de cartas se arma entero en memoria antes de guardarse:
+# combinar Word crece más que lineal (medido con la nómina real de
+# feb-2026: 600 cartas en un archivo = 170 s) y cada lote se arma en un
+# proceso hijo: 50 cartas de las patentes con más causas llegan a ~730 MB
+# (medido el 29-oct-2026 con 1 CPU). El worker tiene 1 GB.
+JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default=50)
+# Sin worker (pruebas, desarrollo con runserver) la misma fase 2 corre
+# dentro de la petición. En producción, siempre False.
+JPLTAG_GENERAR_EN_LA_PETICION = env.bool("JPLTAG_GENERAR_EN_LA_PETICION", default=EN_PRUEBAS)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Registro de la app a la salida estándar (docker logs / Dozzle): sin esto,
+# los avisos INFO del worker (qué generación tomó, cuándo terminó) no salen.
+# Los mensajes no llevan datos de la nómina: solo ids, juzgado y estado.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"consola": {"class": "logging.StreamHandler", "formatter": "simple"}},
+    "loggers": {
+        nombre: {"handlers": ["consola"], "level": env("JPLTAG_LOG_NIVEL", default="WARNING" if EN_PRUEBAS else "INFO"), "propagate": True}
+        for nombre in ("procesos", "motor")
+    },
+}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Errores → GlitchTip (SDK de Sentry; nunca a Sentry directamente)

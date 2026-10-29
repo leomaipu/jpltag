@@ -2,9 +2,10 @@
 {% load static %}
 {% block titulo %}Resultado{% endblock %}
 {% block marca %}Cartas{% endblock %}
+{% block cabeza %}{% if recargar_cada %}<meta http-equiv="refresh" content="{{ recargar_cada }}">{% endif %}{% endblock %}
 {% block contenido %}
 <header class="cab">
-  <h1>{% if generacion.estado == "OK" %}Cartas listas{% elif generacion.estado == "CON_ERRORES" %}Terminó con errores{% elif generacion.estado == "EN_CURSO" %}Generación en curso{% else %}No se pudo generar{% endif %}</h1>
+  <h1>{% if generacion.estado == "OK" %}Cartas listas{% elif generacion.estado == "CON_ERRORES" %}Terminó con errores{% elif generacion.estado == "EN_CURSO" %}Generando las cartas{% elif generacion.estado == "PENDIENTE" %}En cola{% else %}No se pudo generar{% endif %}</h1>
   <p>{{ generacion.get_tipo_carta_display }}{% if mes_nombre %} de {{ mes_nombre }} {{ generacion.anio_periodo }}{% endif %}. {{ generacion.juzgado.nombre }}.</p>
   <div class="tribarra"><i></i></div>
 </header>
@@ -19,9 +20,15 @@
       <p>patente{{ generacion.total_patentes|pluralize }}, una carta cada una</p>
       <p class="mt">
         {% if generacion.estado == "OK" %}<span class="estado">Completado</span>
-        {% elif generacion.estado == "EN_CURSO" %}<span class="estado estado--aviso">Sin terminar: si pasó mucho rato, se interrumpió</span>
+        {% elif generacion.estado == "PENDIENTE" %}<span class="estado estado--aviso">En cola{% if antes_en_la_cola %}: {{ antes_en_la_cola }} generación{{ antes_en_la_cola|pluralize:"es" }} antes{% endif %}</span>
+        {% elif generacion.estado == "EN_CURSO" and interrumpida %}<span class="estado estado--error">Detenida: el generador no responde</span>
+        {% elif generacion.estado == "EN_CURSO" %}<span class="estado estado--aviso">Paquete {{ generacion.lotes_hechos }} de {{ generacion.lotes_total|default:"…" }}</span>
         {% else %}<span class="estado estado--aviso">Completado con errores</span>{% endif %}
       </p>
+      {% if recargar_cada %}
+      {% if generacion.lotes_total %}<progress class="avance mt" max="{{ generacion.lotes_total }}" value="{{ generacion.lotes_hechos }}">{{ generacion.lotes_hechos }} de {{ generacion.lotes_total }}</progress>{% endif %}
+      <p class="campo__ayuda mt">Las cartas se arman en segundo plano: puedes cerrar esta pantalla y volver desde el Inicio. Se actualiza sola cada {{ recargar_cada }} segundos.</p>
+      {% endif %}
       {% endif %}
     </div>
     <dl class="datos">
@@ -78,7 +85,10 @@
         <span class="archivo__nombre">{{ a.nombre_descarga }}</span><br>
         <span class="archivo__tipo">{{ a.get_tipo_display }}</span>
       </span>
-      <a class="btn {% if a.tipo == 'CARTAS' %}btn--primario{% endif %} btn--chico" href="{% url 'procesos:descargar' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>Descargar</a>
+      <span class="archivo__acciones">
+        {% if a.tipo == 'CARTAS' %}<a class="btn btn--primario btn--chico" href="{% url 'procesos:descargar_zip' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>.zip</a>{% endif %}
+        <a class="btn btn--chico" href="{% url 'procesos:descargar' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>{% if a.tipo == 'CARTAS' %}.docx{% else %}Descargar{% endif %}</a>
+      </span>
     </li>
     {% endfor %}
   </ul>

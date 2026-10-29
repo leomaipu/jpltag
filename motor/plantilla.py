@@ -78,6 +78,7 @@ docxtpl repita la fila de la tabla hacen falta 3 filas en la plantilla
     causas[].monto_txt     "1 UTM ($65.000)"
 """
 
+import io
 import logging
 import os
 import re
@@ -417,18 +418,25 @@ def validar_plantilla(archivo, tipo=None):
     renderizada contenga los datos esenciales de ese tipo (nombre,
     patente, tabla de infracciones y la fecha de la audiencia/sentencia).
     Devuelve (es_valida, mensaje_error)."""
+    ctx = contexto_de_ejemplo(tipo or TIPO_CITACION)
+    ctx.update(logo_img="", sello_img="", firma_foto="", linea_firma=LINEA_FIRMA_DEFECTO,
+               firma_img=LINEA_FIRMA_DEFECTO)
+    # Dos pasadas: la carta normal y la de una patente partida en varias
+    # partes, para que un marcador mal escrito dentro de un
+    # {% if total_partes > 1 %} también se vea.
+    en_partes = dict(ctx, parte=2, total_partes=2, causa_desde=13, causa_hasta=14, total_causas=14)
+    contenido = archivo.read() if hasattr(archivo, "read") else None
     try:
-        tpl = DocxTemplate(plantilla_limpia(archivo))
-        ctx = contexto_de_ejemplo(tipo or TIPO_CITACION)
-        ctx["logo_img"] = ""
-        ctx["sello_img"] = ""
-        ctx["firma_foto"] = ""
-        ctx["linea_firma"] = LINEA_FIRMA_DEFECTO
-        ctx["firma_img"] = LINEA_FIRMA_DEFECTO
-        tpl.render(ctx, jinja_env=Environment(undefined=StrictUndefined))
-        texto = texto_de(tpl.docx)
+        for i, contexto in enumerate((ctx, en_partes)):
+            fuente = io.BytesIO(contenido) if contenido is not None else archivo
+            tpl = DocxTemplate(plantilla_limpia(fuente))
+            tpl.render(contexto, jinja_env=Environment(undefined=StrictUndefined))
+            if i == 0:
+                texto = texto_de(tpl.docx)
     except UndefinedError as exc:
-        return False, f"{MARCADOR_DESCONOCIDO}: {exc}. Revisa cómo está escrito (lista de marcadores en la ayuda)."
+        nombres = re.findall(r"'([^']+)'", str(exc))
+        nombre = nombres[-1] if nombres else str(exc)
+        return False, f"{MARCADOR_DESCONOCIDO}: «{nombre}». Revisa cómo está escrito (lista de marcadores en la ayuda)."
     except Exception as exc:
         return False, str(exc)
     if tipo is not None:
@@ -444,6 +452,90 @@ def validar_plantilla(archivo, tipo=None):
     return True, ""
 
 
+class LoteInterrumpido(Exception):
+    """El proceso que armaba un lote terminó sin entregar el resultado (por
+    ejemplo, el sistema lo cerró por falta de memoria)."""
+
+
+class ErrorEnLote(Exception):
+    """El lote falló dentro del proceso hijo; `detalle` trae su traceback."""
+
+    def __init__(self, mensaje, detalle):
+        super().__init__(mensaje)
+        self.detalle = detalle
+
+
+def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plantilla, max_causas,
+                nombre_archivo):
+    """Renderiza y guarda UN archivo de cartas. Devuelve sus filas del Excel
+    de seguimiento (una por causa)."""
+    tipo_carta = config.get("tipo_carta", TIPO_CITACION)
+    anio_actual = ahora_chile().year
+    seguimiento_lote = []
+    documentos_carta = []
+    pat_vista = None
+    numero_carta = primera_carta - 1
+    for pg in expandir_en_paginas(dict(lote_patentes), max_causas):
+        if pg["patente"] != pat_vista:
+            numero_carta += 1
+            pat_vista = pg["patente"]
+            for causa in pg["info"]["causas"]:
+                seguimiento_lote.append({
+                    "Lote": num_lote,
+                    "N° de Carta": numero_carta,
+                    "Tipo de carta": tipo_carta,
+                    "Patente": pg["patente"],
+                    "N° de Parte": causa["nroParte"],
+                    "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
+                })
+        slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
+        contexto = construir_contexto(pg, slot, numero_carta, config)
+        documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
+    combinar_cartas(documentos_carta).save(nombre_archivo)
+    return seguimiento_lote
+
+
+def _llamar(funcion, *args):
+    return funcion(*args)
+
+
+def _en_proceso_aparte(funcion, *args):
+    """Ejecuta funcion(*args) en un proceso hijo (fork) y devuelve su
+    resultado. Armar un .docx de 50 cartas deja ~2,5 MB por carta que
+    Python ya liberó pero el proceso no devuelve al sistema (fragmentación
+    de malloc, medido el 29-oct-2026): miles de cartas seguidas en el mismo
+    proceso superan 1 GB. Un hijo por lote devuelve todo al terminar, y si
+    el sistema lo mata por memoria solo se pierde ese lote."""
+    import multiprocessing
+    import traceback
+
+    contexto = multiprocessing.get_context("fork")
+    lectura, escritura = contexto.Pipe(duplex=False)
+
+    def _hijo():
+        try:
+            escritura.send(("ok", funcion(*args)))
+        except BaseException as exc:  # noqa: BLE001 — todo vuelve al padre
+            escritura.send(("error", (f"{type(exc).__name__}: {exc}", traceback.format_exc())))
+        finally:
+            escritura.close()
+
+    proceso = contexto.Process(target=_hijo, daemon=True)
+    proceso.start()
+    escritura.close()
+    try:
+        estado, valor = lectura.recv()
+    except EOFError:
+        proceso.join()
+        raise LoteInterrumpido(f"el proceso del lote terminó sin resultado (código {proceso.exitcode})") from None
+    finally:
+        lectura.close()
+    proceso.join()
+    if estado == "error":
+        raise ErrorEnLote(*valor)
+    return valor
+
+
 def crear_carpeta_envio(prefijo="Envio"):
     """Crea una carpeta nueva para este envío (Envio_1, Envio_2, ...) sin
     pisar carpetas de corridas anteriores."""
@@ -455,7 +547,8 @@ def crear_carpeta_envio(prefijo="Envio"):
     return carpeta
 
 
-def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, config, carpeta_salida=None):
+def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, config, carpeta_salida=None,
+                                al_terminar_lote=None, aislar_lotes=False):
     """Genera las cartas de citación en lotes correlativos .docx, todas
     dentro de una carpeta para este envío, junto con el Excel de
     seguimiento (Lote / N° de Carta / N° de Parte / Rol).
@@ -490,6 +583,14 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
 
     El detalle técnico de un lote que falla va al log del servidor, no a
     "errores" (que se muestra a quien generó las cartas).
+
+    `al_terminar_lote(n)`, si se pasa, se llama después de cada lote (haya
+    salido o no) con la cantidad de lotes ya procesados: así quien genera en
+    segundo plano puede mostrar el avance.
+
+    Con `aislar_lotes`, cada lote se arma en un proceso hijo que termina al
+    guardarlo (ver _en_proceso_aparte): para generar miles de cartas
+    seguidas sin que la memoria crezca.
     """
     resultado = {"carpeta": None, "archivos": [], "seguimiento": None, "errores": [], "patentes_fallidas": []}
 
@@ -514,51 +615,32 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
 
     seguimiento = []
     numero_carta_global = 0
-    anio_actual = ahora_chile().year
+    armar = _en_proceso_aparte if aislar_lotes else _llamar
 
     for num_lote, lote_patentes in enumerate(lotes, 1):
-        grupo_lote = dict(lote_patentes)
-        paginas = expandir_en_paginas(grupo_lote, max_causas)
         nombre_archivo = os.path.join(carpeta, f"{base_lote}_Cartas_Certificadas_Lote_{num_lote}.docx")
-        # El N° de Carta avanza aunque el lote falle: así una nueva corrida
-        # de las cartas que faltan no se confunde con las que sí salieron.
+        # Cada lote numera desde donde terminó el anterior, haya salido o no:
+        # el N° de Carta de una patente no depende de que otro lote falle.
         primera_carta = numero_carta_global + 1
         numero_carta_global += len(lote_patentes)
-        seguimiento_lote = []
         try:
-            documentos_carta = []
-            pat_vista = None
-            numero_carta = primera_carta - 1
-            for pg in paginas:
-                if pg["patente"] != pat_vista:
-                    numero_carta += 1
-                    pat_vista = pg["patente"]
-                    for causa in pg["info"]["causas"]:
-                        seguimiento_lote.append({
-                            "Lote": num_lote,
-                            "N° de Carta": numero_carta,
-                            "Tipo de carta": tipo_carta,
-                            "Patente": pg["patente"],
-                            "N° de Parte": causa["nroParte"],
-                            "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
-                        })
-                slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
-                contexto = construir_contexto(pg, slot, numero_carta, config)
-                documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
-            doc_final = combinar_cartas(documentos_carta)
-            doc_final.save(nombre_archivo)
-        except Exception:
-            logger.exception("Falló el lote %s de %s", num_lote, base_lote)
+            seguimiento_lote = armar(
+                _armar_lote, lote_patentes, num_lote, primera_carta, slots, config,
+                ruta_plantilla, max_causas, nombre_archivo,
+            )
+        except Exception as exc:
+            logger.error("Falló el lote %s de %s: %s", num_lote, base_lote, getattr(exc, "detalle", ""), exc_info=exc)
             resultado["errores"].append(
                 f"El lote {num_lote} (cartas {primera_carta} a {numero_carta_global}) no se pudo "
                 "generar y no se incluyó. Sus cupos de agenda se devolvieron; el detalle quedó en "
                 "el registro del servidor."
             )
             resultado["patentes_fallidas"].extend(pat for pat, _ in lote_patentes)
-            continue
-
-        seguimiento.extend(seguimiento_lote)
-        resultado["archivos"].append(nombre_archivo)
+        else:
+            seguimiento.extend(seguimiento_lote)
+            resultado["archivos"].append(nombre_archivo)
+        if al_terminar_lote:
+            al_terminar_lote(num_lote)
 
     if seguimiento:
         ruta_seguimiento = os.path.join(carpeta, f"{base_lote}_seguimiento_cartas.xlsx")

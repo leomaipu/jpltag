@@ -3,9 +3,12 @@ from datetime import time, timedelta
 from django import forms
 from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
+from django.core.validators import MaxValueValidator
 
 from motor.plantilla import MARCADOR_DESCONOCIDO, validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta, ahora_local
+
+from .generacion import INCLUIR_REPETIDAS, OMITIR_REPETIDAS
 
 
 class IngresarForm(AuthenticationForm):
@@ -61,9 +64,11 @@ class SubirNominaForm(forms.Form):
         help_text="Se escribe en cada carta. Una sola fecha por tanda.",
     )
     nomina = forms.FileField(
-        label="Nómina del mes (.xlsx)",
-        error_messages={"required": "Elige el Excel de la nómina del mes."},
+        label="Nómina del mes (.xlsx)", required=False,
     )
+    # La nómina que quedó guardada cuando se preguntó por las patentes
+    # repetidas (procesos.generacion.EnvioRepetido): así no se sube dos veces.
+    nomina_guardada = forms.CharField(required=False, widget=forms.HiddenInput)
     tipo_causas = forms.FileField(
         label="Tabla de multas por tipo de causa",
         required=False,
@@ -83,25 +88,36 @@ class SubirNominaForm(forms.Form):
         choices=[("", "Elige el cargo")] + CARGOS_FIRMA,
         error_messages={"required": "Elige el cargo de quien firma."},
     )
-    n_cartas_paquete = forms.IntegerField(
-        label="Cartas por paquete",
-        min_value=0, max_value=settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO, required=False,
-        initial=min(50, settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO),
-        error_messages={
-            "min_value": "Escribe 0 o un número mayor.",
-            "max_value": f"El máximo es {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} cartas por archivo.",
-            "invalid": "Escribe un número entero, por ejemplo 50.",
-        },
-        help_text=(
-            f"Reparte la impresión en archivos de hasta {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} cartas. "
-            f"0 deja todas en un solo archivo (solo si son {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} o menos)."
-        ),
-    )
+    # Tope y textos en __init__: dependen de settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO.
+    n_cartas_paquete = forms.IntegerField(label="Cartas por paquete", min_value=0, required=False)
     # Se muestra solo cuando la generación avisó que hay patentes que ya
-    # recibieron esta carta en el mismo período (procesos.generacion.EnvioRepetido).
-    confirmar_repeticion = forms.BooleanField(
-        label="Sí, generar de nuevo las cartas de esas patentes", required=False,
+    # recibieron carta en el mismo período (procesos.generacion.EnvioRepetido).
+    repetidas = forms.ChoiceField(
+        label="Las patentes que ya recibieron carta",
+        choices=[
+            (OMITIR_REPETIDAS, "Generar solo las que faltan"),
+            (INCLUIR_REPETIDAS, "Generar todas de nuevo (saldrán dos cartas para las repetidas)"),
+        ],
+        required=False, widget=forms.RadioSelect,
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tope = settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO
+        campo = self.fields["n_cartas_paquete"]
+        campo.max_value = tope
+        campo.validators.append(MaxValueValidator(tope))
+        campo.widget.attrs.update({"min": 0, "max": tope})
+        campo.initial = tope
+        campo.error_messages = {
+            "min_value": "Escribe 0 o un número mayor.",
+            "max_value": f"El máximo es {tope} cartas por archivo.",
+            "invalid": f"Escribe un número entero, por ejemplo {tope}.",
+        }
+        campo.help_text = (
+            f"Reparte la impresión en archivos de hasta {tope} cartas. "
+            f"0 deja todas en un solo archivo (solo si son {tope} o menos)."
+        )
 
     def _validar_excel(self, archivo):
         if archivo and not archivo.name.lower().endswith((".xlsx", ".xls")):
@@ -110,6 +126,8 @@ class SubirNominaForm(forms.Form):
 
     def clean(self):
         datos = super().clean()
+        if not datos.get("nomina") and not datos.get("nomina_guardada"):
+            self.add_error("nomina", "Elige el Excel de la nómina del mes.")
         if datos.get("tipo_carta") == TipoCarta.SENTENCIA and not datos.get("fecha_audiencia"):
             self.add_error(
                 "fecha_audiencia",

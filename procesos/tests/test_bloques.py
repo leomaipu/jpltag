@@ -688,7 +688,7 @@ class CorridaInterrumpidaTest(_GeneracionBase):
 
     def test_una_corrida_vieja_se_devuelve_desde_la_pantalla_del_bloque(self):
         corrida = self._interrumpir()
-        GeneracionCartas.objects.filter(pk=corrida.pk).update(creado=timezone.now() - timedelta(minutes=30))
+        GeneracionCartas.objects.filter(pk=corrida.pk).update(actualizado=timezone.now() - timedelta(minutes=30))
         pantalla = self.client.get(f"/agenda/bloque/{self.bloque.pk}/")
         self.assertContains(pantalla, "Se interrumpió antes de terminar")
         self.assertContains(pantalla, "Devolver los cupos de esa generación")
@@ -714,7 +714,7 @@ class CorridaInterrumpidaTest(_GeneracionBase):
             cupos_por_bloque={str(self.ajeno.pk): 3},
         )
         BloqueHorario.objects.filter(pk=self.ajeno.pk).update(cupos_usados=3)
-        GeneracionCartas.objects.filter(pk=ajena.pk).update(creado=timezone.now() - timedelta(hours=2))
+        GeneracionCartas.objects.filter(pk=ajena.pk).update(actualizado=timezone.now() - timedelta(hours=2))
         self.client.post(f"/agenda/bloque/{self.bloque.pk}/", {"accion": "devolver_corrida", "corrida": ajena.pk})
         self.assertEqual(self.recargar(self.ajeno).cupos_usados, 3)
 

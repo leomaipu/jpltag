@@ -31,6 +31,24 @@ services:
       - jpltag_media_dev:/app/media
       - jpltag_salidas_dev:/app/salidas
 
+  # Arma las cartas de las generaciones en cola (procesos/generacion.py).
+  worker:
+    image: jpltag:dev
+    command: python manage.py procesar_generaciones
+    depends_on:
+      jpltag:
+        condition: service_started
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: clave-insegura-solo-para-desarrollo-local
+      DATABASE_URL: postgres://jpltag:jpltag@db:5432/jpltag
+      VALKEY_URL: redis://valkey:6379/0
+    volumes:
+      - jpltag_media_dev:/app/media
+      - jpltag_salidas_dev:/app/salidas
+    healthcheck:
+      disable: true
+
   db:
     image: postgres:17-alpine
     environment:

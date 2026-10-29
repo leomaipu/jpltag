@@ -21,6 +21,38 @@
 </form>
 {% endif %}
 
+{% if repetido %}
+<form method="post" class="formulario-ancho" data-procesa novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+  {% for campo in form.hidden_fields %}{{ campo }}{% endfor %}
+  <input type="hidden" name="tipo_carta" value="{{ form.tipo_carta.value }}">
+  <input type="hidden" name="fecha_audiencia" value="{{ form.fecha_audiencia.value|date:'Y-m-d'|default:'' }}">
+  <input type="hidden" name="nombre_firmante" value="{{ form.nombre_firmante.value }}">
+  <input type="hidden" name="cargo_firma" value="{{ form.cargo_firma.value }}">
+  <input type="hidden" name="n_cartas_paquete" value="{{ form.n_cartas_paquete.value }}">
+  <section class="bloque" role="alert" aria-labelledby="repetir-titulo" tabindex="-1" data-enfocar>
+    <h2 id="repetir-titulo" class="seccion__titulo">Hay patentes que ya recibieron carta</h2>
+    <p class="texto-suave">{{ repetido.mensaje }}</p>
+    <p class="campo__ayuda mt">La nómina «{{ repetido.nombre_nomina }}» quedó guardada: no hace falta volver a subirla.</p>
+    <fieldset class="campo mt">
+      <legend>{{ form.repetidas.label }}</legend>
+      {% for radio in form.repetidas %}
+      <label class="casilla" for="{{ radio.id_for_label }}">{{ radio.tag }} {{ radio.choice_label }}{% if forloop.first %} ({{ repetido.faltan }}){% endif %}</label>
+      {% endfor %}
+    </fieldset>
+  </section>
+  <div class="procesando bloque" role="status" tabindex="-1">
+    <h2>Preparando las cartas</h2>
+    <p class="texto-suave">Se revisa la nómina y se reserva la agenda. Toma unos segundos.</p>
+    <div class="barra-espera" aria-hidden="true"></div>
+  </div>
+  <div class="acciones acciones--fija">
+    <a class="btn" href="{% url 'procesos:subir_nomina' %}?juzgado={{ juzgado.slug }}">Cancelar</a>
+    <button type="submit" class="btn btn--primario">Continuar</button>
+  </div>
+</form>
+{% else %}
 <form method="post" enctype="multipart/form-data" class="formulario-ancho" data-procesa novalidate>
   {% csrf_token %}
   <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
@@ -37,7 +69,7 @@
           <label class="solo-lectores" for="{{ form.nomina.id_for_label }}">Nómina del mes (.xlsx)</label>
           {{ form.nomina }}
         </div>
-        <span class="campo__ayuda">Hasta {{ max_cartas }} cartas por generación. Si la nómina da más para este juzgado, divide el Excel dejando todas las filas de cada patente en la misma parte.</span>
+        <span class="campo__ayuda">La nómina completa del mes, una sola vez: las cartas se arman en segundo plano y puedes seguir el avance.</span>
         {{ form.nomina.errors }}
       </div>
     </section>
@@ -105,22 +137,14 @@
   </div>
 
   <div class="bloque procesando" role="status" tabindex="-1">
-    <h2>Generando las cartas</h2>
-    <p class="texto-suave">Puede tardar hasta 3 minutos. Mantén esta pestaña abierta: al terminar verás los archivos.</p>
+    <h2>Revisando la nómina</h2>
+    <p class="texto-suave">Se lee el Excel y se reserva la agenda; con la nómina completa del mes toma unos 30 segundos. Después las cartas se arman en segundo plano.</p>
     <div class="barra-espera" aria-hidden="true"></div>
-    <button type="button" class="btn btn--chico procesando__cancelar" data-cancelar>Dejar de esperar</button>
-    <p class="campo__ayuda mt">Si dejas de esperar, revisa el Inicio antes de volver a enviar: la generación puede haber terminado y no conviene duplicarla.</p>
   </div>
-
-  {% if pide_confirmacion %}
-  <section class="bloque" aria-labelledby="repetir-titulo">
-    <h2 id="repetir-titulo" class="seccion__titulo">¿Generar de nuevo?</h2>
-    <label class="casilla" for="{{ form.confirmar_repeticion.id_for_label }}">{{ form.confirmar_repeticion }} {{ form.confirmar_repeticion.label }}</label>
-  </section>
-  {% endif %}
 
   <div class="acciones acciones--fija">
     <button type="submit" class="btn btn--primario">Generar cartas</button>
   </div>
 </form>
+{% endif %}
 {% endblock %}

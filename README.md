@@ -144,29 +144,35 @@ Cada bloque es una audiencia con cupos; las citaciones toman cupos del primer bl
 - La base exige `cupos_usados <= cupos_totales` (restricción) y dos pestañas no se pisan: el formulario lleva una huella de fecha, hora y cupos.
 - En `/admin/` los cupos ocupados son de solo lectura y no se borran bloques con cartas.
 
-### Controles de una generación de cartas (`procesos/generacion.py`)
+### Generación de cartas en segundo plano (`procesos/generacion.py`)
 
-La generación corre dentro de la petición web, que el servidor corta a los
-180 s. Por eso, y para no repetir envíos por error:
+La nómina del mes se sube **una sola vez**. La web la lee, agrupa y filtra,
+hace los controles, reserva la agenda y deja la corrida «En cola» (unos
+segundos). El worker (`python manage.py procesar_generaciones`, contenedor
+aparte, uno solo) arma los paquetes de cartas sin el límite de 180 s de una
+petición: una nómina completa son ~9.000 cartas y 15–45 minutos. La pantalla
+de resultado muestra «paquete N de M» y se recarga sola. Cada paquete se
+arma en un proceso hijo que termina al guardarlo: así la memoria no crece
+(medido el 29-oct-2026: sin esto, ~2,5 MB por carta quedaban tomados y el
+contenedor moría pasadas las 300 cartas).
 
-- **Topes:** hasta `JPLTAG_MAX_CARTAS_POR_CORRIDA` cartas por generación (500)
-  y hasta `JPLTAG_MAX_CARTAS_POR_ARCHIVO` por archivo Word (100; «Cartas por
-  paquete» parte en 50). Una nómina que da más para el juzgado se rechaza
-  antes de tocar la agenda: hay que dividir el Excel dejando todas las filas
-  de una patente en la misma parte. Los valores salen de lo medido con la
-  nómina real (ver `config/settings.py`).
-- **Una tanda a la vez** en todo el sitio (3 workers, 1 GB): si otra
-  generación está en curso (menos de 10 minutos), se pide esperar.
-- **Patentes repetidas:** si alguna patente ya recibió la misma carta, del
-  mismo juzgado y período, en una corrida que terminó, se avisa y hay que
-  confirmarlo. Cada corrida guarda sus patentes (`GeneracionCartas.patentes`);
-  las corridas anteriores a este cambio no las tienen y no cuentan.
-- **«Citación y sentencia» sin cupo:** si la agenda no alcanza para todas las
-  patentes no se genera (condenaría por no concurrir a una audiencia sin día).
-  La «Citación» sola sigue saliendo «a coordinar».
-- **Lotes que fallan:** sus cartas no quedan en el seguimiento, sus cupos
-  vuelven a la agenda y la pantalla de resultado lo muestra. El detalle
-  técnico va al registro del servidor, no a la pantalla.
+Controles al preparar:
+
+- **Tope por archivo:** hasta `JPLTAG_MAX_CARTAS_POR_ARCHIVO` cartas por
+  Word (50; «Cartas por paquete» parte ahí). Cada paquete se descarga como
+  `.docx` o comprimido en `.zip`.
+- **Patentes que ya recibieron carta** del mismo juzgado y período
+  (citación y «citación y sentencia» cuentan como la misma familia; la
+  sentencia va aparte): se pregunta si generar solo las que faltan o todas
+  de nuevo. La nómina queda guardada mientras tanto (12 h, solo para quien
+  la subió): no hay que volver a subirla. Cada corrida guarda sus patentes
+  (`GeneracionCartas.patentes`); las anteriores a este cambio no cuentan.
+- **«Citación y sentencia» sin cupo:** si la agenda no alcanza para todas
+  las patentes no se genera (condenaría por no concurrir a una audiencia
+  sin día). La «Citación» sola sigue saliendo «a coordinar».
+- **Paquetes que fallan:** sus cartas no quedan en el seguimiento, sus
+  cupos vuelven a la agenda y la pantalla de resultado lo muestra; el
+  detalle técnico va al registro del servidor.
 - **Días sin juzgado:** las patentes de un día que ningún juzgado activo
   procesa van al log de errores (`FUERA_DE_TODO_RANGO`) y se avisan. Los
   rangos de los juzgados activos no se pueden traslapar (`Juzgado.clean`).
@@ -174,8 +180,10 @@ La generación corre dentro de la petición web, que el servidor corta a los
   usuario conectado.
 
 Lo rechazado antes de empezar no deja corrida ni archivos en disco; una
-nómina sin mes reconocible o sin patentes del rango sí queda como corrida
-«Falló», con el motivo.
+nómina sin mes reconocible o sin patentes del rango queda como corrida
+«Falló», con el motivo. Sin worker (pruebas, `runserver`) la misma fase
+de generación corre dentro de la petición
+(`JPLTAG_GENERAR_EN_LA_PETICION`).
 
 ### UTM automático (Módulo 4)
 
@@ -203,7 +211,8 @@ Definidos en `nucleo/models.py` (`PERMISOS_POR_ROL`), confirmados con el
 Juzgado el 10-oct-2026. Un Administrador sin juzgado asignado ve los 3;
 el resto, solo el suyo, y un perfil de otro rol sin juzgado no ve ninguno
 (`/admin/` no deja guardarlo así). Los usuarios y perfiles se crean en
-`/admin/` (la cuenta necesita `is_staff`); no hay pantalla propia.
+`/admin/`, que solo abre a superusuarios (`config/urls.py`): ahí no hay
+aislamiento por juzgado. No hay pantalla propia de usuarios.
 
 ## Desarrollo local
 
@@ -215,7 +224,7 @@ Dos formas, a elegir:
 docker compose up --build
 ```
 
-Levanta jpltag junto a un Postgres y un Valkey propios, en
+Levanta jpltag (web y worker) junto a un Postgres y un Valkey propios, en
 `http://localhost:8000`. Es solo para desarrollo — en producción se usa
 el `compose.yaml` que genera el script de despliegue del servidor, no
 este archivo (ver DESPLIEGUE.md).
@@ -229,6 +238,9 @@ pip install --require-hashes -r requirements.txt
 python manage.py migrate        # usa SQLite si no hay DATABASE_URL (ver abajo)
 python manage.py createsuperuser
 python manage.py runserver
+# y en otra terminal, el worker que arma las cartas:
+python manage.py procesar_generaciones
+# (o, sin worker: JPLTAG_GENERAR_EN_LA_PETICION=True python manage.py runserver)
 ```
 
 Sin un `.env`, `config/settings.py` cae a SQLite y a una caché en

@@ -162,7 +162,12 @@ DJANGO_ALLOWED_HOSTS=jpltag.maiproject.cl,localhost,127.0.0.1
 DATABASE_URL                 # la genera maipu-nueva-bd jpltag (PostgreSQL vía PgBouncer)
 VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesiones)
 GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
+JPLTAG_MAX_CARTAS_POR_ARCHIVO # opcional — tope de cartas por archivo Word (50)
+JPLTAG_LOG_NIVEL             # opcional — INFO por defecto
 ```
+
+`JPLTAG_GENERAR_EN_LA_PETICION` existe solo para pruebas y desarrollo sin
+worker: en el servidor nunca se define (vale False).
 
 `settings.py` también sabe leer `DJANGO_CSRF_TRUSTED_ORIGINS` si alguna
 vez se necesita fijarla a mano (igual que Soporte), pero el script ya no
@@ -191,8 +196,10 @@ fecha con huso horario habría fallado con `ZoneInfoNotFoundError`.
 Verificado simulando un contenedor sin tzdata de sistema.
 
 `jpltag.env` (creado con `sudo maipu-nueva-bd jpltag`, ya ejecutado) trae
-además `VALKEY_COLAS_URL` — jpltag no usa colas/Celery en la Fase 1, así
-que esa variable queda sin usar a propósito; no hace falta borrarla.
+además `VALKEY_COLAS_URL` — jpltag no usa Celery: su cola de generaciones
+vive en PostgreSQL (`GeneracionCartas` en estado «En cola», que el worker
+toma con `SELECT … FOR UPDATE SKIP LOCKED`), así que esa variable queda
+sin usar a propósito; no hace falta borrarla.
 
 GlitchTip: crear el proyecto `jpltag` en `errores.maiproject.cl`, dejar el
 DSN en `/opt/maiproject/apps/jpltag/secretos/sentry_dsn` (600) y volver a
@@ -214,10 +221,22 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
 
 ## 2. Qué deja publicado el script
 
-- Un contenedor (`maipu-jpltag`), solo en `127.0.0.1:$JPLTAG_PUERTO`
+- Un contenedor web (`maipu-jpltag`), solo en `127.0.0.1:$JPLTAG_PUERTO`
   (8603 si está libre; el script se detiene si ya lo usa otro
   contenedor, servicio o backend de HAProxy, y se puede fijar a mano con
   `JPLTAG_PUERTO=86xx`).
+- Un worker (`maipu-jpltag-worker`), la misma imagen con
+  `python manage.py procesar_generaciones`, sin puertos: arma las cartas
+  de las generaciones en cola (`procesos/generacion.py`). La web solo lee
+  la nómina (~20–30 s con la del mes completo), reserva la agenda y deja
+  la corrida «En cola»; la pantalla de resultado muestra el avance
+  (paquete N de M) y se recarga sola. Cada paquete se arma en un proceso
+  hijo, para que la memoria no crezca con miles de cartas: 1 GB y 1 vCPU
+  (`JPLTAG_WORKER_MEM`, `JPLTAG_WORKER_CPUS`). Tiene que haber **uno
+  solo**: al arrancar retoma lo que quedó «en curso» (por ejemplo tras el
+  apagado de la VM a las 23 h), rehaciéndolo desde el principio con los
+  mismos cupos. Cada hora borra las nóminas guardadas que nadie confirmó
+  (aviso de patentes repetidas) después de 12 h.
 - Tres carpetas persistentes **fuera** de la imagen, en el host:
   `/maipu/data/files/jpltag/media` (logo/sello/firma y las plantillas Word
   propias de cada Juzgado — Módulos 1 y 2, ver README.md),
@@ -252,10 +271,12 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
 - Este despliegue aplica migraciones nuevas en la agenda (`nucleo` 0005–0006,
   `procesos` 0003–0004). La 0005 acota a su total cualquier bloque que tenga
   más cupos ocupados que totales (deja un aviso en el log con los ids) antes
-  de que la 0006 agregue la restricción. Una generación de cartas que quede
-  «En curso» más de 10 minutos (proceso muerto por tiempo agotado o reinicio)
-  se resuelve desde la pantalla del bloque con «Devolver los cupos de esa
-  generación».
+  de que la 0006 agregue la restricción. Una generación «En curso» sin
+  latido del worker por más de 10 minutos la retoma el worker; si el
+  worker no vuelve, desde la pantalla del bloque se pueden devolver sus
+  cupos («Devolver los cupos de esa generación»).
+- `/admin/` solo abre a superusuarios (`config/urls.py`): no aísla por
+  juzgado.
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):
   `sudo GUNICORN_WORKERS=5 bash 13-app-jpltag.sh`.
 

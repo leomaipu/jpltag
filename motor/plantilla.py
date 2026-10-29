@@ -127,10 +127,12 @@ LOGO_DEFECTO = os.path.join(DIR_DEFECTO, "logo_maipu.png")
 # una segunda hoja. No son ajustables desde la plantilla: InlineImage
 # necesita el tamaño al renderizar. Medido con LibreOffice el 29-oct-2026
 # (motor/tests/test_paginas.py): con timbre y firma apilados caben las
-# MAX_CAUSAS_POR_PAGINA_DEFECTO infracciones en una hoja.
+# MAX_CAUSAS_POR_PAGINA_DEFECTO infracciones en una hoja también en el peor
+# caso realista de la nómina (nombre, domicilio y lugar más largos, página
+# de continuación); el 2do JPL con firma y timbre no admite más alto.
 CAJA_LOGO_IN = (0.5, 0.75)    # el logo municipal es vertical: 0,5 × 0,73
-CAJA_SELLO_IN = (0.9, 0.5)
-CAJA_FIRMA_IN = (1.4, 0.55)
+CAJA_SELLO_IN = (0.9, 0.45)
+CAJA_FIRMA_IN = (1.4, 0.5)
 # Sin timbre aparte (p. ej. una sola imagen con firma y timbre), la firma
 # usa parte del alto que habría ocupado el timbre.
 CAJA_FIRMA_SIN_SELLO_IN = (1.4, 0.8)
@@ -286,9 +288,11 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
 
 
 def tamano_en_caja(ruta, caja):
-    """(ancho, alto) en pulgadas de la imagen achicada hasta caber en `caja`
-    (ancho, alto máximos), con su proporción. Una imagen chica no se agranda
-    más allá de la caja: se ajusta al lado que limita."""
+    """(ancho, alto) en pulgadas de la imagen ajustada a `caja` (ancho, alto
+    máximos), con su proporción: se escala hasta que el lado que limita toca
+    la caja, así que una imagen chica en píxeles también se agranda hasta
+    ese tamaño. Usa los píxeles tal como están guardados (sin aplicar la
+    rotación EXIF), que es como Word los muestra."""
     stat = os.stat(ruta)
     return _tamano_en_caja(ruta, stat.st_mtime_ns, stat.st_size, caja)
 

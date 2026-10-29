@@ -485,6 +485,7 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         tabla_multas = cargar_tabla_multas(ruta_tipo_causas) if ruta_tipo_causas else []
 
         grupos, sin_causas, avisos = construir_grupos(df_limpio, tabla_multas, utm_multa_defecto=1)
+        avisos.update(df.attrs.get("avisos_lectura", {}))
         anio_pred, mes_pred = detectar_mes_predominante(grupos)
         if not mes_pred:
             return _registrar_fallo(

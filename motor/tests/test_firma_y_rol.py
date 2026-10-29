@@ -78,6 +78,39 @@ class RolMunicipalTest(unittest.TestCase):
         self.assertEqual(grupos["AAAA10"]["causas"][0]["rol_raw"], "3090675-MUN")
 
 
+class RolMunicipalAmbiguoTest(unittest.TestCase):
+    """Ronda del árbitro: la columna del ROL no puede ser otra columna ya
+    mapeada, y un valor suelto distinto no deja a la nómina sin ROL."""
+
+    def test_un_n_de_parte_terminado_en_mun_no_se_toma_como_rol(self):
+        df = pd.DataFrame([fila(nro_parte=f"55{i}-MUN", pat=f"AAAA1{i}") for i in range(3)])
+        leida = leer_nomina(_nomina_xlsx(df))
+        self.assertNotIn(COLUMNA_ROL_MUN, leida.columns)
+        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_municipal_no_encontrado": True})
+        grupos, _, _ = construir_grupos(leida, [], utm_multa_defecto=1)
+        self.assertEqual(grupos["AAAA10"]["causas"][0]["nroParte"], "550-MUN")
+
+    def test_un_valor_suelto_sin_formato_no_impide_reconocerla_y_queda_pendiente(self):
+        valores = [f"30906{i:02d}-MUN" for i in range(39)] + ["S/N"]
+        leida = leer_nomina(_nomina_xlsx(_con_columna_sin_encabezado(valores)))
+        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_municipal_sin_formato": 1})
+        grupos, _, _ = construir_grupos(leida, [], utm_multa_defecto=1)
+        ultima = grupos["AAAA139"]["causas"][0]
+        self.assertEqual(formatear_rol(ultima["rol_raw"], 2026), "PENDIENTE")
+
+    def test_espacios_alrededor_del_guion_cuentan(self):
+        leida = leer_nomina(_nomina_xlsx(_con_columna_sin_encabezado(["3090675 - MUN"])))
+        self.assertIn(COLUMNA_ROL_MUN, leida.columns)
+        self.assertEqual(formatear_rol(leida[COLUMNA_ROL_MUN][0], 2026), "3090675 - MUN")
+
+    def test_dos_columnas_candidatas_avisa_y_usa_la_primera(self):
+        df = _con_columna_sin_encabezado(["3090675-MUN"])
+        df.insert(11, " ", ["777-MUN"])
+        leida = leer_nomina(_nomina_xlsx(df))
+        self.assertEqual(leida[COLUMNA_ROL_MUN][0], "3090675-MUN")
+        self.assertEqual(len(leida.attrs["avisos_lectura"]["rol_municipal_otras_columnas"]), 1)
+
+
 def _imagen(carpeta, nombre, tamano):
     ruta = os.path.join(carpeta, nombre)
     Image.new("RGB", tamano, "white").save(ruta)

@@ -56,11 +56,10 @@ class Juzgado(models.Model):
     # Cuántas infracciones caben en UNA página de carta sin que la firma y el
     # texto final salten a una segunda hoja. Medido con LibreOffice
     # (motor/tests/test_paginas.py, 29-oct-2026) con las plantillas por
-    # defecto, timbre y firma apilados sobre el nombre y lugares y
-    # disposiciones de 2 líneas: caben 13 en todas; el peor caso (firma +
-    # timbre del 2do JPL en «Citación y sentencia») no admite 14. Se deja 12
-    # por holgura. Si un Juzgado sube una plantilla más compacta (o más
-    # alta), se ajusta desde /admin/.
+    # defecto, timbre y firma apilados sobre el nombre y el peor caso
+    # realista de la nómina (nombre, domicilio y lugar más largos, página de
+    # continuación): 12 caben en los 3 juzgados. Si un Juzgado sube una
+    # plantilla más compacta (o más alta), se ajusta desde /admin/.
     max_causas_por_pagina = models.PositiveSmallIntegerField(
         default=12, validators=[MinValueValidator(1)],
         help_text="Infracciones por página de carta; si una patente tiene más, la carta sale en varias partes.",

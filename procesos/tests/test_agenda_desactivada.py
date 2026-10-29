@@ -85,6 +85,13 @@ class AgendaDesactivadaTest(TestCase):
         self.assertEqual(agenda.status_code, 200)
         self.assertContains(agenda, "las citaciones salen «a coordinar con el Juzgado»")
 
+    def test_el_panel_lo_dice(self):
+        self.assertContains(self.client.get("/"), "Las cartas todavía no usan la agenda")
+
+    def test_sin_columna_del_rol_el_resultado_lo_avisa(self):
+        resp = self._subir("CITACION")
+        self.assertContains(resp, "La nómina no trae la columna del ROL municipal")
+
     @override_settings(JPLTAG_AGENDA_ACTIVA=True)
     def test_con_la_agenda_activa_vuelve_a_tomar_cupos(self):
         self.assertContains(self.client.get("/subir/"), "Usa la agenda")

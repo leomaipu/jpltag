@@ -8,6 +8,7 @@ por patrones en minúscula en vez de un nombre de columna exacto.
 
 import datetime as _dt
 import re
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -15,8 +16,11 @@ import pandas as pd
 # encabezado (pandas la lee como "Unnamed: 20"), con valores como
 # "3090675-MUN". Se reconoce por su contenido y se renombra a COLUMNA_ROL_MUN
 # (ver lectura.leer_nomina), que es lo primero que busca MAPEO["ROL"].
-ROL_MUNICIPAL = re.compile(r"-MUN$", re.IGNORECASE)
+ROL_MUNICIPAL = re.compile(r"\s*-\s*MUN\s*$", re.IGNORECASE)
 COLUMNA_ROL_MUN = "rol (-mun)"
+# Basta con que casi todos los valores tengan esa forma: un «S/N» suelto no
+# debe dejar a toda la nómina sin ROL.
+PROPORCION_MINIMA_ROL_MUN = 0.95
 
 MAPEO = {
     "NRO_PARTE": ["número de parte", "nro parte", "numero de parte"],
@@ -40,15 +44,53 @@ MAPEO = {
 }
 
 
-def columna_rol_municipal(df):
-    """La columna cuyos valores (no vacíos) terminan todos en -MUN, o None.
-    Con encabezado o sin él: se reconoce por lo que trae."""
+@dataclass
+class RolMunicipal:
+    """La columna del ROL municipal de una nómina y lo que hay que avisar."""
+
+    columna: object
+    sin_formato: int = 0                                  # valores que no terminan en -MUN
+    otras_candidatas: list = field(default_factory=list)  # otras columnas que también podrían serlo
+
+
+def _es_de_otro_dato(columna):
+    """El encabezado ya corresponde a otro dato del mapeo (p. ej. el N° de
+    parte): esa columna nunca se toma como ROL, termine en lo que termine."""
+    nombre = str(columna).lower().strip()
+    return any(
+        patron in nombre
+        for clave, patrones in MAPEO.items() if clave != "ROL"
+        for patron in patrones
+    )
+
+
+def buscar_rol_municipal(df):
+    """La columna cuyos valores no vacíos terminan (casi todos) en -MUN, o
+    None. Se reconoce por su contenido, tenga o no encabezado, salvo que el
+    encabezado ya sea de otro dato. Si hay varias, gana la primera y las
+    demás quedan en `otras_candidatas` para avisar."""
+    candidatas = []
     for col in df.columns:
+        if _es_de_otro_dato(col):
+            continue
         valores = df[col].astype(str).str.strip()
         valores = valores[valores != ""]
-        if len(valores) and valores.str.contains(ROL_MUNICIPAL).all():
-            return col
-    return None
+        if not len(valores):
+            continue
+        calzan = int(valores.str.contains(ROL_MUNICIPAL).sum())
+        if calzan / len(valores) >= PROPORCION_MINIMA_ROL_MUN:
+            candidatas.append(RolMunicipal(columna=col, sin_formato=len(valores) - calzan))
+    if not candidatas:
+        return None
+    elegida = candidatas[0]
+    elegida.otras_candidatas = [c.columna for c in candidatas[1:]]
+    return elegida
+
+
+def columna_rol_municipal(df):
+    """Solo el nombre de la columna del ROL municipal, o None."""
+    encontrada = buscar_rol_municipal(df)
+    return encontrada.columna if encontrada else None
 
 
 def get_col(row, key):

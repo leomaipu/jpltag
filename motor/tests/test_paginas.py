@@ -43,24 +43,50 @@ def _imagen(carpeta, nombre, tamano):
     return ruta
 
 
-def _pagina_llena(n):
-    """Una patente con `n` infracciones de textos largos (2 líneas en la tabla)."""
+# Los textos más largos de la nómina real de feb-2026 (en caracteres).
+NOMBRE_MAS_LARGO = 71
+DOMICILIO_MAS_LARGO = 83
+LUGAR_MAS_LARGO = 121
+
+
+def _texto(base, largo):
+    return (base * (largo // len(base) + 1))[:largo]
+
+
+def _pagina_llena(n, *, de_lo_mas_largo=False):
+    """Una patente con `n` infracciones de textos largos (2 líneas en la
+    tabla). `de_lo_mas_largo`: el peor caso realista de la nómina real —
+    nombre y domicilio del largo máximo, una infracción con el lugar más
+    largo (3 líneas) y la página «parte 2 de 3», que suma su aviso.
+
+    El extremo sintético (las 12 filas con el lugar más largo de toda la
+    nómina) no cabe en el 2do JPL ni con las plantillas anteriores al bloque
+    de firma apilado: si llegara a pasar, ese juzgado baja
+    max_causas_por_pagina desde /admin/."""
+    lugar_normal = "AUTOPISTA CENTRAL, PORTICO PA-12 SENTIDO NORTE SUR KM 14,5"
+    lugar_largo = _texto("AUTOPISTA CENTRAL PORTICO PA-12 ", LUGAR_MAS_LARGO)
     causas = [
         {
             "nroParte": f"12558{i:02d}-M78", "rol_raw": f"30906{i:02d}-MUN",
             "fecha": "03/09/2026", "hora": "08:30",
-            "lugar": "AUTOPISTA CENTRAL, PORTICO PA-12 SENTIDO NORTE SUR KM 14,5",
+            "lugar": lugar_largo if de_lo_mas_largo and i == 0 else lugar_normal,
             "disposicion": "ARTICULO 114 LEY 18.290 TRANSITAR SIN DISPOSITIVO TAG HABILITADO",
             "monto": 1,
         }
         for i in range(n)
     ]
     info = {
-        "digPat": "1", "rol_raw": "", "reg_raw": "", "nombre": "MARIA JOSEFINA PEREZ DE LA FUENTE SOTOMAYOR",
-        "rut": "11111111-1", "domicilio": "PASAJE LOS AROMOS 1234, VILLA LAS ARAUCARIAS DEPTO 1203",
+        "digPat": "1", "rol_raw": "", "reg_raw": "",
+        "nombre": _texto("MARIA JOSEFINA PEREZ ", NOMBRE_MAS_LARGO) if de_lo_mas_largo
+        else "MARIA JOSEFINA PEREZ DE LA FUENTE SOTOMAYOR",
+        "rut": "11111111-1",
+        "domicilio": _texto("PASAJE LOS AROMOS 1234 ", DOMICILIO_MAS_LARGO) if de_lo_mas_largo
+        else "PASAJE LOS AROMOS 1234, VILLA LAS ARAUCARIAS DEPTO 1203",
         "comuna": "MAIPU", "vehiculo": "CHEVROLET, SPARK", "causas": causas,
     }
-    return {"patente": "AAAA11", "info": info, "chunk": causas, "parte": 1, "total_partes": 1, "total_causas": n}
+    parte, total = (2, 3) if de_lo_mas_largo else (1, 1)
+    return {"patente": "AAAA11", "info": info, "chunk": causas, "parte": parte, "total_partes": total,
+            "total_causas": n * total}
 
 
 def _paginas_pdf(docx, carpeta):
@@ -95,22 +121,43 @@ class CartaLlenaEnUnaHojaTest(unittest.TestCase):
         shutil.rmtree(cls.carpeta, ignore_errors=True)
 
     def test_el_maximo_de_infracciones_cabe_en_una_hoja(self):
-        pagina = _pagina_llena(MAX_CAUSAS_POR_PAGINA_DEFECTO)
+        self._cabe(_pagina_llena(MAX_CAUSAS_POR_PAGINA_DEFECTO), "normal")
+
+    def test_cabe_tambien_con_los_textos_mas_largos_en_una_pagina_de_continuacion(self):
+        self._cabe(_pagina_llena(MAX_CAUSAS_POR_PAGINA_DEFECTO, de_lo_mas_largo=True), "largo")
+
+    def test_la_prueba_detecta_un_desborde(self):
+        """Control: con más infracciones de las que caben, sí se pasa a 2 hojas."""
+        pagina = _pagina_llena(MAX_CAUSAS_POR_PAGINA_DEFECTO + 4)
+        config = self._config(2, "CITACION_SENTENCIA", self.imagenes["firma horizontal + timbre"])
+        self.assertGreater(self._paginas(pagina, config, "control"), 1)
+
+    def _config(self, n, tipo, imagenes):
+        return {
+            "tipo_carta": tipo, "slug_juzgado": f"jpl{n}", "nombre_juzgado": f"JPL {n}",
+            "utm_valor": 72151, "max_causas_por_pagina": MAX_CAUSAS_POR_PAGINA_DEFECTO,
+            "nombre_firmante": "CAROLINA ANDREA MUÑOZ RIQUELME", "cargo_firma": "SECRETARIA ABOGADA",
+            "fecha_audiencia": "29/10/2026", **imagenes,
+        }
+
+    def _paginas(self, pagina, config, etiqueta):
+        contexto = construir_contexto(pagina, ("A COORDINAR CON EL JUZGADO", ""), 1, config)
+        doc = renderizar_carta(
+            ruta_plantilla_defecto(config["slug_juzgado"], "", config["tipo_carta"]), contexto, config,
+        )
+        ruta = os.path.join(
+            self.carpeta, f"{config['slug_juzgado']}_{config['tipo_carta']}_{len(config)}_{etiqueta}.docx",
+        )
+        doc.save(ruta)
+        return _paginas_pdf(ruta, self.carpeta)
+
+    def _cabe(self, pagina, etiqueta):
         for n in (1, 2, 3):
             for tipo in TIPOS_CARTA:
                 for caso, imagenes in self.imagenes.items():
                     with self.subTest(juzgado=n, tipo=tipo, imagenes=caso):
-                        config = {
-                            "tipo_carta": tipo, "slug_juzgado": f"jpl{n}", "nombre_juzgado": f"JPL {n}",
-                            "utm_valor": 72151, "max_causas_por_pagina": MAX_CAUSAS_POR_PAGINA_DEFECTO,
-                            "nombre_firmante": "CAROLINA ANDREA MUÑOZ RIQUELME", "cargo_firma": "SECRETARIA ABOGADA",
-                            "fecha_audiencia": "29/10/2026", **imagenes,
-                        }
-                        contexto = construir_contexto(pagina, ("A COORDINAR CON EL JUZGADO", ""), 1, config)
-                        doc = renderizar_carta(ruta_plantilla_defecto(f"jpl{n}", "", tipo), contexto, config)
-                        ruta = os.path.join(self.carpeta, f"jpl{n}_{tipo}_{len(caso)}.docx")
-                        doc.save(ruta)
-                        self.assertEqual(_paginas_pdf(ruta, self.carpeta), 1)
+                        config = self._config(n, tipo, imagenes)
+                        self.assertEqual(self._paginas(pagina, config, f"{etiqueta}_{len(caso)}"), 1)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,17 @@
 </section>
 {% endif %}
 
+{% if generacion.avisos.rol_municipal_no_encontrado or generacion.avisos.rol_municipal_sin_formato or generacion.avisos.rol_municipal_otras_columnas %}
+<section class="bloque">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa el ROL</span></h2>
+  <ul class="lista">
+    {% if generacion.avisos.rol_municipal_no_encontrado %}<li>La nómina no trae la columna del ROL municipal (valores terminados en «-MUN»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_municipal_sin_formato %}<li>{{ generacion.avisos.rol_municipal_sin_formato }} valor{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"es" }} de la columna del ROL no termina{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"n" }} en «-MUN»: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_municipal_otras_columnas %}<li>Más de una columna parece traer el ROL; se usó la primera. Las otras: {{ generacion.avisos.rol_municipal_otras_columnas|join:", " }}.</li>{% endif %}
+  </ul>
+</section>
+{% endif %}
+
 {% if generacion.avisos.fuera_de_todo_rango %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Patentes sin juzgado</span></h2>

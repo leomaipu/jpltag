@@ -85,24 +85,31 @@ abogada.
 En el bloque de firma va el timbre arriba, la firma (o la línea punteada)
 y debajo el nombre y el cargo, centrados. Cada imagen se achica hasta caber
 en su caja sin deformarse (`motor/plantilla.py`, `CAJA_*_IN`): timbre de
-hasta 0,5" de alto y firma de hasta 0,55" (0,8" si el juzgado no cargó
+hasta 0,45" de alto y firma de hasta 0,5" (0,8" si el juzgado no cargó
 timbre aparte, como el 3er JPL, que sube firma y timbre en una sola
 imagen). Así una imagen alta no empuja la tabla de multas a otra hoja.
 
 Cuántas infracciones caben en una hoja (`Juzgado.max_causas_por_pagina`,
 12 por defecto): se mide con LibreOffice (`motor/tests/test_paginas.py`,
 que se salta si no está instalado) con las plantillas por defecto, timbre y
-firma apilados y textos de 2 líneas — caben 13 en todas y el peor caso no
-admite 14; si una patente tiene más, la carta sale en varias partes
+firma apilados y el peor caso realista de la nómina (nombre, domicilio y
+lugar más largos, en una página de continuación) — caben en los 3
+juzgados. Si las 12 infracciones de una patente tuvieran todas el lugar más
+largo de la nómina, el 2do JPL se pasaría de hoja (también con las
+plantillas anteriores): ahí conviene bajar el valor de ese juzgado. Si una
+patente tiene más, la carta sale en varias partes
 completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
 firma. Con una plantilla propia más alta o más compacta, ajustar desde
 `/admin/`.
 
 **Rol:** la nómina de la DAF trae el ROL de cada causa en una columna sin
 encabezado, con valores como `3090675-MUN`. `motor/lectura.leer_nomina` la
-reconoce por su contenido (todos sus valores terminan en `-MUN`) y la
-carta lo imprime tal cual (`motor/cartas.formatear_rol`). Sin esa columna,
-la columna Rol imprime `PENDIENTE`. `Reg N°` sigue en «folio carta trámite»
+reconoce por su contenido (al menos el 95 % de sus valores terminan en
+`-MUN`; una columna cuyo encabezado ya es de otro dato, como el N° de parte,
+nunca se toma) y la carta lo imprime tal cual (`motor/cartas.formatear_rol`).
+Una causa cuyo valor no tiene esa forma sale `PENDIENTE`, y la pantalla de
+resultado avisa cuando falta la columna, cuando hay valores sin formato o
+cuando más de una columna podría serlo. `Reg N°` sigue en «folio carta trámite»
 mientras la nómina no lo traiga.
 
 **Agenda:** por ahora la generación de cartas no usa la agenda

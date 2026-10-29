@@ -87,10 +87,10 @@
           <span class="opcion__titulo">{{ radio.choice_label }}</span>
           {% if radio.data.value == "CITACION" %}
           <span class="opcion__texto">Cita al infractor a una audiencia.</span>
-          <span class="opcion__marcas"><span class="chip">Usa la agenda</span></span>
+          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">A coordinar</span>{% endif %}</span>
           {% elif radio.data.value == "CITACION_SENTENCIA" %}
           <span class="opcion__texto">Cita a audiencia y avisa que, si no concurre, queda condenado.</span>
-          <span class="opcion__marcas"><span class="chip">Usa la agenda</span></span>
+          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">A coordinar</span>{% endif %}</span>
           {% else %}
           <span class="opcion__texto">Notifica la sentencia ya dictada.</span>
           <span class="opcion__marcas"><span class="chip">Sin agenda</span><span class="chip">Pide la fecha</span></span>
@@ -99,6 +99,7 @@
         {% endfor %}
       </div>
       {{ form.tipo_carta.errors }}
+      {% if not agenda_activa %}<p class="campo__ayuda">Por ahora las cartas no usan la agenda: la audiencia sale «en fecha y hora a coordinar con el Juzgado» y no se toman cupos.</p>{% endif %}
       <div class="campo solo-sentencia">
         <label for="{{ form.fecha_audiencia.id_for_label }}">Fecha de la sentencia</label>
         {{ form.fecha_audiencia }}

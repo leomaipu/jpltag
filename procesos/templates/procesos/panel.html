@@ -24,7 +24,7 @@
   <a class="btn btn--primario" href="{% url 'procesos:subir_nomina' %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#subir"/></svg>Subir nómina</a>
   {% else %}
   <h2 id="heroe-titulo">Audiencias del juzgado</h2>
-  <p>Revisa cuántos cupos quedan en cada bloque y agrega nuevos horarios.</p>
+  <p>{% if agenda_activa %}Revisa cuántos cupos quedan en cada bloque y agrega nuevos horarios.{% else %}Puedes preparar los bloques de audiencia. Por ahora las cartas no los usan: las citaciones salen «a coordinar con el Juzgado».{% endif %}</p>
   <a class="btn btn--primario" href="{% url 'procesos:agenda' %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg>Abrir agenda</a>
   {% endif %}
 </section>
@@ -67,7 +67,7 @@
   {% endif %}
 
   <section class="bloque" aria-labelledby="aud-titulo">
-    <h2 id="aud-titulo" class="seccion__titulo">Próximas audiencias<small>Cupos usados por bloque</small></h2>
+    <h2 id="aud-titulo" class="seccion__titulo">Próximas audiencias<small>{% if agenda_activa %}Cupos usados por bloque{% else %}Las cartas todavía no usan la agenda{% endif %}</small></h2>
     {% if proximos_bloques %}
     <ul>
       {% for b in proximos_bloques %}

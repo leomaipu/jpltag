@@ -40,7 +40,7 @@ def _filas(patentes, dia=3):
     ]
 
 
-@override_settings(SALIDAS_ROOT=_TMP_SALIDAS)
+@override_settings(SALIDAS_ROOT=_TMP_SALIDAS, JPLTAG_AGENDA_ACTIVA=True)
 class _Base(TestCase):
     @classmethod
     def tearDownClass(cls):

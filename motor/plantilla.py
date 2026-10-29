@@ -58,9 +58,14 @@ vacías (sello_img, firma_foto) o con una línea punteada en vez de firma
 
     logo_img
     sello_img
+    firma_img       la imagen de la firma, o la línea punteada si no hay
+                    (la que usan las plantillas por defecto)
     firma_foto      solo la imagen de la firma ("" si no hay)
     linea_firma     solo la línea punteada ("" si hay firma cargada)
-    firma_img       lo uno o lo otro: la imagen, o la línea punteada
+
+El timbre (sello_img) conviene ponerlo en su propio párrafo entre
+"{%p if sello_img %}" y "{%p endif %}": si el juzgado no lo cargó, el
+párrafo desaparece y no deja una línea en blanco.
 
 Tabla de causas — una fila por infracción de esta carta. Para que
 docxtpl repita la fila de la tabla hacen falta 3 filas en la plantilla
@@ -78,6 +83,7 @@ docxtpl repita la fila de la tabla hacen falta 3 filas en la plantilla
     causas[].monto_txt     "1 UTM ($65.000)"
 """
 
+import functools
 import io
 import logging
 import os
@@ -114,12 +120,22 @@ TIPOS_CARTA = (TIPO_CITACION, TIPO_CITACION_SENTENCIA, TIPO_SENTENCIA)
 DIR_DEFECTO = os.path.join(os.path.dirname(__file__), "plantillas_defecto")
 LOGO_DEFECTO = os.path.join(DIR_DEFECTO, "logo_maipu.png")
 
-# Anchos de imagen. No son ajustables desde la plantilla: InlineImage
-# necesita el ancho en el momento de renderizar, no se puede fijar solo
-# con Word.
-ANCHO_LOGO_IN = 0.5      # el logo es vertical (~0.69 de ancho/alto): ~0.73 in de alto
-ANCHO_SELLO_IN = 0.6
-ANCHO_FIRMA_IN = 1.2
+# Caja (ancho, alto máximos, en pulgadas) de cada imagen. La imagen se
+# achica hasta caber, sin deformarse: lo que cada juzgado sube tiene
+# cualquier proporción (el 3er JPL usa una sola imagen vertical con firma y
+# timbre), y una imagen más alta que su caja empuja la tabla de multas a
+# una segunda hoja. No son ajustables desde la plantilla: InlineImage
+# necesita el tamaño al renderizar. Medido con LibreOffice el 29-oct-2026
+# (motor/tests/test_paginas.py): con timbre y firma apilados caben las
+# MAX_CAUSAS_POR_PAGINA_DEFECTO infracciones en una hoja también en el peor
+# caso realista de la nómina (nombre, domicilio y lugar más largos, página
+# de continuación); el 2do JPL con firma y timbre no admite más alto.
+CAJA_LOGO_IN = (0.5, 0.75)    # el logo municipal es vertical: 0,5 × 0,73
+CAJA_SELLO_IN = (0.9, 0.45)
+CAJA_FIRMA_IN = (1.4, 0.5)
+# Sin timbre aparte (p. ej. una sola imagen con firma y timbre), la firma
+# usa parte del alto que habría ocupado el timbre.
+CAJA_FIRMA_SIN_SELLO_IN = (1.4, 0.8)
 
 # Infracciones que caben en una página con las plantillas por defecto (ver
 # el comentario de nucleo.models.Juzgado.max_causas_por_pagina).
@@ -271,22 +287,46 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
     }
 
 
+def tamano_en_caja(ruta, caja):
+    """(ancho, alto) en pulgadas de la imagen ajustada a `caja` (ancho, alto
+    máximos), con su proporción: se escala hasta que el lado que limita toca
+    la caja, así que una imagen chica en píxeles también se agranda hasta
+    ese tamaño. Usa los píxeles tal como están guardados (sin aplicar la
+    rotación EXIF), que es como Word los muestra."""
+    stat = os.stat(ruta)
+    return _tamano_en_caja(ruta, stat.st_mtime_ns, stat.st_size, caja)
+
+
+@functools.lru_cache(maxsize=64)
+def _tamano_en_caja(ruta, _mtime, _tamano, caja):
+    # Pillow ya es dependencia (ImageField de Juzgado); solo lee la cabecera.
+    from PIL import Image
+
+    with Image.open(ruta) as imagen:
+        ancho_px, alto_px = imagen.size
+    max_ancho, max_alto = caja
+    escala = min(max_ancho / ancho_px, max_alto / alto_px)
+    return round(ancho_px * escala, 3), round(alto_px * escala, 3)
+
+
 def renderizar_carta(ruta_plantilla, contexto, config):
     """Renderiza UNA carta con docxtpl y devuelve el Document en memoria
     (python-docx), sin guardar a disco todavía."""
     # Sin control de cambios ni comentarios: si no, saldrían impresos.
     tpl = DocxTemplate(plantilla_limpia(ruta_plantilla))
     ctx = dict(contexto)
-    for clave, clave_ruta, ancho, valor_vacio in [
-        ("logo_img", "logo_path", ANCHO_LOGO_IN, ""),
-        ("sello_img", "sello_path", ANCHO_SELLO_IN, ""),
-        ("firma_foto", "firma_path", ANCHO_FIRMA_IN, ""),
+    hay_sello = bool(config.get("sello_path") and os.path.exists(config["sello_path"]))
+    for clave, clave_ruta, caja, valor_vacio in [
+        ("logo_img", "logo_path", CAJA_LOGO_IN, ""),
+        ("sello_img", "sello_path", CAJA_SELLO_IN, ""),
+        ("firma_foto", "firma_path", CAJA_FIRMA_IN if hay_sello else CAJA_FIRMA_SIN_SELLO_IN, ""),
     ]:
         ruta = config.get(clave_ruta)
         if clave == "logo_img" and not (ruta and os.path.exists(ruta)):
             ruta = LOGO_DEFECTO
         if ruta and os.path.exists(ruta):
-            ctx[clave] = InlineImage(tpl, ruta, width=Inches(ancho))
+            ancho, alto = tamano_en_caja(ruta, caja)
+            ctx[clave] = InlineImage(tpl, ruta, width=Inches(ancho), height=Inches(alto))
         else:
             ctx[clave] = valor_vacio
     # Firma: la imagen si el Juzgado la cargó; si no, una línea punteada

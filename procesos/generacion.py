@@ -22,8 +22,10 @@ Controles de preparar():
   período: se avisa y la persona elige generar solo las que faltan o todas
   de nuevo, sin volver a subir la nómina (queda guardada, ver
   firmar_nomina_guardada).
-- «Citación y sentencia» exige cupo de agenda para todas las patentes: sin
-  día de audiencia no se puede condenar por no concurrir.
+- Con la agenda activa (settings.JPLTAG_AGENDA_ACTIVA), «Citación y
+  sentencia» exige cupo para todas las patentes: sin día de audiencia no se
+  puede condenar por no concurrir. Con la agenda apagada no se reservan
+  cupos y todas las citaciones (también esa) salen «a coordinar».
 
 Dos tipos de problema, a propósito tratados distinto:
 - GeneracionRechazada: no se empezó. La persona ajusta algo (agrega
@@ -483,6 +485,7 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         tabla_multas = cargar_tabla_multas(ruta_tipo_causas) if ruta_tipo_causas else []
 
         grupos, sin_causas, avisos = construir_grupos(df_limpio, tabla_multas, utm_multa_defecto=1)
+        avisos.update(df.attrs.get("avisos_lectura", {}))
         anio_pred, mes_pred = detectar_mes_predominante(grupos)
         if not mes_pred:
             return _registrar_fallo(
@@ -541,9 +544,12 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             _registrar_archivo(corrida, ruta_log, ArchivoGenerado.Tipo.LOG_ERRORES)
             return corrida
 
-        if tipo_carta == TipoCarta.SENTENCIA:
-            # La sentencia ya está dictada: no se cita a ninguna audiencia,
-            # así que no se asigna agenda ni se gastan cupos.
+        if tipo_carta == TipoCarta.SENTENCIA or not settings.JPLTAG_AGENDA_ACTIVA:
+            # La sentencia ya está dictada: no cita a ninguna audiencia. Con
+            # la agenda apagada, toda citación sale «a coordinar». En ambos
+            # casos no se asigna agenda ni se gastan cupos.
+            if tipo_carta != TipoCarta.SENTENCIA:
+                avisos["agenda_desactivada"] = True
             with transaction.atomic():
                 return _encolar(_Reserva())
         _, corrida = reservar_agenda(

@@ -66,7 +66,8 @@ class Command(BaseCommand):
                 close_old_connections()
                 corrida = None
             if corrida is not None:
-                logger.info("Generación %s: %s", corrida.pk, corrida.estado)
+                corrida.refresh_from_db(fields=["estado"])
+                logger.info("Generación %s: %s", corrida.pk, corrida.get_estado_display())
                 continue
             if una_vez:
                 break

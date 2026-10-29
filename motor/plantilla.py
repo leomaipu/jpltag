@@ -454,7 +454,7 @@ def validar_plantilla(archivo, tipo=None):
 
 # Un lote de 50 cartas tarda menos de 1 min con 1 CPU (medido con las
 # patentes más largas de la nómina real, 29-oct-2026).
-TIEMPO_MAXIMO_LOTE = 300  # s
+TIEMPO_MAXIMO_LOTE = 120  # s (el worker tiene 150 s para detenerse: ver 13-app-jpltag.sh)
 
 
 class LoteInterrumpido(Exception):
@@ -498,8 +498,24 @@ def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plan
         slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
         contexto = construir_contexto(pg, slot, numero_por_patente[pg["patente"]], config)
         documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
-    combinar_cartas(documentos_carta).save(nombre_archivo)
+    # Se escribe aparte y se renombra al final: si el proceso muere a mitad
+    # de guardar, no queda un .docx truncado con el nombre definitivo (al
+    # retomar la corrida se daría por hecho).
+    temporal = f"{nombre_archivo}.tmp"
+    combinar_cartas(documentos_carta).save(temporal)
+    os.replace(temporal, nombre_archivo)
     return _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, config.get("tipo_carta", TIPO_CITACION))
+
+
+def _es_docx(ruta):
+    """El archivo existe y es un Word que abre (no uno a medio escribir)."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(ruta) as zf:
+            return "word/document.xml" in zf.namelist() and zf.testzip() is None
+    except (OSError, zipfile.BadZipFile):
+        return False
 
 
 def _llamar(funcion, *args):
@@ -640,7 +656,7 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         # el N° de Carta de una patente no depende de que otro lote falle.
         primera_carta = numero_carta_global + 1
         numero_carta_global += len(lote_patentes)
-        if num_lote <= lotes_listos and os.path.isfile(nombre_archivo):
+        if num_lote <= lotes_listos and _es_docx(nombre_archivo):
             seguimiento.extend(_seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta))
             resultado["archivos"].append(nombre_archivo)
             continue

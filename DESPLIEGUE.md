@@ -238,7 +238,7 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   termina el paquete en curso y devuelve la corrida a la cola; al volver
   sigue desde el último paquete terminado. Si muere de golpe, otro worker
   la retoma cuando su latido tiene más de 7 min. Un paquete que no termina
-  en 5 min se corta y queda como fallido, sin detener la cola. Una
+  en 2 min se corta y queda como fallido, sin detener la cola. Una
   generación en cola se puede cancelar desde su pantalla (sus cupos
   vuelven a la agenda). Cada hora borra las nóminas guardadas que nadie
   confirmó (aviso de patentes repetidas) después de 12 h; la copia de

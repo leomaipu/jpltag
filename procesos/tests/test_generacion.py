@@ -221,6 +221,32 @@ class ColaYWorkerTest(_Base):
         self.assertEqual(self.client.post(f"/resultado/{corrida.pk}/cancelar/").status_code, 403)
 
 
+class ReanudarConArchivoTruncadoTest(TestCase):
+    """Ronda 3 del árbitro (N1): un paquete cuyo .docx quedó a medio escribir
+    no se da por hecho al retomar la corrida."""
+
+    def test_se_vuelve_a_armar(self):
+        from motor import plantilla
+        from motor.tests.test_plantillas_tipos import _config, _info
+
+        grupos = {f"AAAA1{i}": _info() for i in range(3)}
+        slots = {p: ("15/11/2026", "09:30") for p in grupos}
+        with tempfile.TemporaryDirectory() as carpeta:
+            plantilla.generar_cartas_certificadas(grupos, "jpl1", slots, 1, _config(1, "CITACION"), carpeta_salida=carpeta)
+            segundo = Path(carpeta) / "jpl1_Cartas_Certificadas_Lote_2.docx"
+            segundo.write_bytes(b"PK\x03\x04 truncado")
+            armados = []
+            original = plantilla._armar_lote
+            with mock.patch.object(plantilla, "_armar_lote", side_effect=lambda *a: armados.append(a[1]) or original(*a)):
+                resultado = plantilla.generar_cartas_certificadas(
+                    grupos, "jpl1", slots, 1, _config(1, "CITACION"), carpeta_salida=carpeta, lotes_listos=3,
+                )
+            self.assertEqual(armados, [2])
+            self.assertTrue(plantilla._es_docx(segundo))
+            self.assertEqual(len(resultado["archivos"]), 3)
+            self.assertEqual(list(Path(carpeta).glob("*.tmp")), [])
+
+
 class ProcesoDelPaqueteTest(TestCase):
     def test_un_paquete_colgado_se_corta(self):
         from motor import plantilla

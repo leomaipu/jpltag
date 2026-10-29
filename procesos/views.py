@@ -464,7 +464,11 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
         )
 
     def post(self, request, pk):
-        _bloque_del_usuario(request, pk)  # 403/404 antes de bloquear la fila
+        bloque = _bloque_del_usuario(request, pk)  # 403/404 antes de bloquear la fila
+        if request.POST.get("accion") == "devolver_corrida":
+            # Fuera de la transacción del bloque: cancelar() bloquea la corrida
+            # y después sus bloques, el mismo orden que usa el worker al cerrar.
+            return self._pasado(request, bloque) or self._devolver_corrida(request, bloque)
         with transaction.atomic():
             # La fila se bloquea: una generación de cartas en curso también
             # actualiza los cupos ocupados.
@@ -472,9 +476,6 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
             pasado = self._pasado(request, bloque)
             if pasado:
                 return pasado
-
-            if request.POST.get("accion") == "devolver_corrida":
-                return self._devolver_corrida(request, bloque)
 
             if request.POST.get("accion") == "cerrar":
                 if bloque.cupos_usados == 0:

@@ -32,15 +32,19 @@
   <input type="hidden" name="cargo_firma" value="{{ form.cargo_firma.value }}">
   <input type="hidden" name="n_cartas_paquete" value="{{ form.n_cartas_paquete.value }}">
   <section class="bloque" role="alert" aria-labelledby="repetir-titulo" tabindex="-1" data-enfocar>
-    <h2 id="repetir-titulo" class="seccion__titulo">Hay patentes que ya recibieron carta</h2>
+    <h2 id="repetir-titulo" class="seccion__titulo">{% if repetido.es_pregunta %}Hay patentes que ya recibieron carta{% else %}Falta algo para seguir{% endif %}</h2>
     <p class="texto-suave">{{ repetido.mensaje }}</p>
-    <p class="campo__ayuda mt">La nómina «{{ repetido.nombre_nomina }}» quedó guardada: no hace falta volver a subirla.</p>
+    <p class="campo__ayuda mt">La nómina «{{ repetido.nombre_nomina }}» quedó guardada: no hace falta volver a subirla.{% if not repetido.es_pregunta %} Corrige lo indicado (por ejemplo, agrega bloques en la Agenda) y presiona «Continuar».{% endif %}</p>
+    {% if repetido.es_pregunta %}
     <fieldset class="campo mt">
       <legend>{{ form.repetidas.label }}</legend>
       {% for radio in form.repetidas %}
       <label class="casilla" for="{{ radio.id_for_label }}">{{ radio.tag }} {{ radio.choice_label }}{% if forloop.first %} ({{ repetido.faltan }}){% endif %}</label>
       {% endfor %}
     </fieldset>
+    {% elif form.repetidas.value %}
+    <input type="hidden" name="repetidas" value="{{ form.repetidas.value }}">
+    {% endif %}
   </section>
   <div class="procesando bloque" role="status" tabindex="-1">
     <h2>Preparando las cartas</h2>

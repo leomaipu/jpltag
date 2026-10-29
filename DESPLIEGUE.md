@@ -232,11 +232,17 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   la corrida «En cola»; la pantalla de resultado muestra el avance
   (paquete N de M) y se recarga sola. Cada paquete se arma en un proceso
   hijo, para que la memoria no crezca con miles de cartas: 1 GB y 1 vCPU
-  (`JPLTAG_WORKER_MEM`, `JPLTAG_WORKER_CPUS`). Tiene que haber **uno
-  solo**: al arrancar retoma lo que quedó «en curso» (por ejemplo tras el
-  apagado de la VM a las 23 h), rehaciéndolo desde el principio con los
-  mismos cupos. Cada hora borra las nóminas guardadas que nadie confirmó
-  (aviso de patentes repetidas) después de 12 h.
+  (`JPLTAG_WORKER_MEM`, `JPLTAG_WORKER_CPUS`). Basta con uno; si por
+  error arrancan dos no se pisan (cada corrida queda a nombre del que la
+  tomó). Con `docker stop` (despliegue, apagado de la VM a las 23 h)
+  termina el paquete en curso y devuelve la corrida a la cola; al volver
+  sigue desde el último paquete terminado. Si muere de golpe, otro worker
+  la retoma cuando su latido tiene más de 7 min. Un paquete que no termina
+  en 5 min se corta y queda como fallido, sin detener la cola. Una
+  generación en cola se puede cancelar desde su pantalla (sus cupos
+  vuelven a la agenda). Cada hora borra las nóminas guardadas que nadie
+  confirmó (aviso de patentes repetidas) después de 12 h; la copia de
+  trabajo (`trabajo.json`) se borra al cerrar cada corrida.
 - Tres carpetas persistentes **fuera** de la imagen, en el host:
   `/maipu/data/files/jpltag/media` (logo/sello/firma y las plantillas Word
   propias de cada Juzgado — Módulos 1 y 2, ver README.md),
@@ -272,9 +278,9 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   `procesos` 0003–0004). La 0005 acota a su total cualquier bloque que tenga
   más cupos ocupados que totales (deja un aviso en el log con los ids) antes
   de que la 0006 agregue la restricción. Una generación «En curso» sin
-  latido del worker por más de 10 minutos la retoma el worker; si el
-  worker no vuelve, desde la pantalla del bloque se pueden devolver sus
-  cupos («Devolver los cupos de esa generación»).
+  latido del worker por más de 7 minutos la retoma el worker; si el
+  worker no vuelve, se cancela desde su pantalla o desde la del bloque
+  («Devolver los cupos de esa generación»).
 - `/admin/` solo abre a superusuarios (`config/urls.py`): no aísla por
   juzgado.
 - `GUNICORN_WORKERS` ajustable sin reconstruir la imagen (por defecto 3):

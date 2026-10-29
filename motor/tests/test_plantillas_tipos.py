@@ -5,7 +5,6 @@ cada una conserva el texto propio de su Juzgado (ordinal del Juzgado,
 diferencias de redacción del 2do). Ninguna prueba usa datos reales.
 """
 
-import io
 import os
 import tempfile
 import unittest

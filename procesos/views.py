@@ -148,15 +148,19 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
 
         try:
             corrida = generacion.preparar(juzgado, request.user, solicitud)
-        except generacion.EnvioRepetido as exc:
-            form = SubirNominaForm(initial={**datos, "nomina_guardada": exc.token, "repetidas": None})
-            return self._pantalla(request, perfil, juzgado, form, repetido={
-                "mensaje": str(exc), "nombre_nomina": solicitud.nombre_nomina,
-                "faltan": exc.n_total - exc.n_repetidas,
-            })
         except generacion.GeneracionRechazada as exc:
-            form.add_error(None, str(exc))
-            return self._pantalla(request, perfil, juzgado, form)
+            if not exc.token:
+                form.add_error(None, str(exc))
+                return self._pantalla(request, perfil, juzgado, form)
+            # La nómina quedó guardada: se pregunta (o se pide corregir) sin volver a subirla.
+            repetido = isinstance(exc, generacion.EnvioRepetido)
+            form = SubirNominaForm(initial={
+                **datos, "nomina_guardada": exc.token, "repetidas": None if repetido else datos.get("repetidas"),
+            })
+            return self._pantalla(request, perfil, juzgado, form, repetido={
+                "mensaje": str(exc), "nombre_nomina": solicitud.nombre_nomina, "es_pregunta": repetido,
+                "faltan": exc.n_total - exc.n_repetidas if repetido else None,
+            })
         return redirect("procesos:resultado", pk=corrida.pk)
 
 
@@ -192,6 +196,24 @@ class ResultadoView(PuedeGenerarCartasMixin, View):
             "antes_en_la_cola": generacion.corridas_antes_en_la_cola(corrida),
             "interrumpida": generacion.corrida_interrumpida(corrida),
         })
+
+
+class CancelarGeneracionView(PuedeGenerarCartasMixin, View):
+    """Saca de la cola una generación que no ha empezado (o cuyo worker dejó
+    de responder) y devuelve sus cupos a la agenda."""
+
+    def post(self, request, pk):
+        corrida = get_object_or_404(GeneracionCartas.objects.select_related("juzgado"), pk=pk)
+        if not request.user.perfil.tiene_acceso_a(corrida.juzgado):
+            raise PermissionDenied("No tienes acceso a este juzgado.")
+        cancelada = generacion.cancelar(
+            corrida.pk, corrida.juzgado, f"Cancelada por {request.user.get_username()}; sus cupos volvieron a la agenda.",
+        )
+        if cancelada is None:
+            messages.error(request, "Esa generación ya no se puede cancelar: terminó o se está generando.")
+        else:
+            messages.success(request, f"Generación cancelada. Volvieron {cancelada.cupos_devueltos} cupos a la agenda.")
+        return redirect("procesos:resultado", pk=corrida.pk)
 
 
 class DescargarArchivoView(PuedeGenerarCartasMixin, View):
@@ -421,26 +443,17 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
             pk = int(request.POST.get("corrida", ""))
         except ValueError:
             pk = None
-        corrida = (
-            GeneracionCartas.objects.select_for_update()
-            .filter(pk=pk, juzgado=bloque.juzgado, estado=GeneracionCartas.Estado.EN_CURSO).first()
+        corrida = GeneracionCartas.objects.filter(pk=pk, estado=GeneracionCartas.Estado.EN_CURSO).first()
+        cancelada = corrida and generacion.corrida_interrumpida(corrida) and generacion.cancelar(
+            pk, bloque.juzgado,
+            f"Se interrumpió antes de terminar. {request.user.get_username()} devolvió sus cupos a la agenda.",
         )
-        if corrida is None or not generacion.corrida_interrumpida(corrida):
+        if not cancelada:
             messages.error(request, "Esa generación no se puede devolver: ya terminó o sigue en marcha.")
             return redirect("procesos:bloque_editar", pk=bloque.pk)
-        tomados = {int(k): v for k, v in corrida.cupos_por_bloque.items()}
-        generacion.devolver_cupos(tomados)
-        corrida.estado = GeneracionCartas.Estado.FALLIDO
-        corrida.mensaje_error = "Se interrumpió antes de terminar. Sus cupos se devolvieron a la agenda."
-        corrida.cupos_por_bloque = {}
-        corrida.save(update_fields=["estado", "mensaje_error", "cupos_por_bloque"])
-        logger.warning(
-            "Cupos devueltos de la generación interrumpida %s (%s): %s por %s",
-            corrida.pk, bloque.juzgado.slug, tomados, request.user.get_username(),
-        )
         messages.success(
             request,
-            f"Se devolvieron {sum(tomados.values())} cupos a la agenda. Las cartas de esa generación no salieron.",
+            f"Se devolvieron {cancelada.cupos_devueltos} cupos a la agenda. Las cartas de esa generación no salieron.",
         )
         return redirect("procesos:bloque_editar", pk=bloque.pk)
 

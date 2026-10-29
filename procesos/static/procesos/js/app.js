@@ -67,12 +67,22 @@
     if (form && e.target.closest(".tarjetas-tipo")) { marcarSentencia(form); }
   });
 
+  // Acciones que no se deshacen (cancelar una generación): piden confirmación.
+  doc.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (form.matches("[data-confirmar]") && !window.confirm(form.getAttribute("data-confirmar"))) {
+      e.preventDefault();
+    }
+  });
+
   // Revisar la nómina toma unos segundos: se muestra el estado de espera en
   // vez de dejar una pantalla quieta.
   doc.addEventListener("submit", function (e) {
     var form = e.target;
     if (!form.matches("[data-procesa]") || !form.checkValidity()) { return; }
     window.setTimeout(function () {
+      // Un segundo clic enviaría la misma nómina dos veces.
+      form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
       form.classList.add("enviando");
       var aviso = form.querySelector(".procesando");
       if (aviso) { aviso.focus(); window.scrollTo({ top: 0 }); }

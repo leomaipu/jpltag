@@ -8,7 +8,7 @@ Las fechas son relativas a hoy: la agenda no admite fechas pasadas.
 import logging
 import shutil
 import tempfile
-from datetime import date, time, timedelta
+from datetime import time, timedelta
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -459,7 +459,7 @@ class HorasDeHoyTest(BloquesBase):
 
     def test_un_bloque_de_hoy_cuya_hora_paso_queda_en_el_historial_sin_edicion(self):
         with _RelojFijo(_a_las(12)):
-            resp = self.client.get(f"/agenda/?juzgado=jpl1")
+            resp = self.client.get("/agenda/?juzgado=jpl1")
             self.assertNotContains(resp, f'href="/agenda/bloque/{self.manana_temprano.pk}/"')
             self.assertContains(resp, f'href="/agenda/bloque/{self.hoy_tarde.pk}/"')
             self.assertEqual(self.client.get(f"/agenda/bloque/{self.manana_temprano.pk}/").status_code, 302)
@@ -692,7 +692,7 @@ class CorridaInterrumpidaTest(_GeneracionBase):
         pantalla = self.client.get(f"/agenda/bloque/{self.bloque.pk}/")
         self.assertContains(pantalla, "Se interrumpió antes de terminar")
         self.assertContains(pantalla, "Devolver los cupos de esa generación")
-        with self.assertLogs("procesos.views", level=logging.WARNING):
+        with self.assertLogs("procesos.generacion", level=logging.WARNING):
             resp = self.client.post(
                 f"/agenda/bloque/{self.bloque.pk}/", {"accion": "devolver_corrida", "corrida": corrida.pk}, follow=True,
             )

@@ -93,14 +93,15 @@ class ColaYWorkerTest(_Base):
         self.assertContains(resp, '<meta http-equiv="refresh" content="10">')
         self.assertFalse(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS).exists())
 
-    def test_el_worker_la_genera(self):
+    def test_el_worker_la_genera_y_borra_el_trabajo(self):
         self.subir(("AAAA11", "BBBB22", "CCCC33"), n_cartas_paquete=2)
-        self.assertIsNotNone(generacion.procesar_siguiente())
+        self.assertIsNotNone(generacion.procesar_siguiente("w1"))
         corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
         self.assertEqual((corrida.lotes_hechos, corrida.lotes_total), (2, 2))
         self.assertEqual(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS).count(), 2)
-        self.assertIsNone(generacion.procesar_siguiente())
+        self.assertFalse((Path(_TMP_SALIDAS) / corrida.carpeta_salida / generacion.TRABAJO).exists())
+        self.assertIsNone(generacion.procesar_siguiente("w1"))
         resp = self.client.get(f"/resultado/{corrida.pk}/")
         self.assertContains(resp, "Cartas listas")
         self.assertNotContains(resp, 'http-equiv="refresh"')
@@ -120,44 +121,113 @@ class ColaYWorkerTest(_Base):
         segunda = GeneracionCartas.objects.order_by("pk").last()
         self.assertContains(self.client.get(f"/resultado/{segunda.pk}/"), "1 generación antes")
 
-    def test_un_worker_que_arranca_retoma_lo_que_quedo_en_curso(self):
+    def test_un_segundo_worker_no_toma_la_corrida_de_otro_con_latido(self):
         self.subir(("AAAA11",))
-        tomada = generacion.tomar_siguiente()
-        self.assertEqual(tomada.estado, GeneracionCartas.Estado.EN_CURSO)
-        # el worker murió: el siguiente no la ve hasta que se dé por huérfana...
-        self.assertIsNone(generacion.tomar_siguiente())
-        # ...o hasta que un worker nuevo arranca
-        self.assertEqual(generacion.retomar_huerfanas(), 1)
-        generacion.procesar_siguiente()
-        self.assertEqual(GeneracionCartas.objects.get().estado, GeneracionCartas.Estado.OK)
-        self.assertEqual(self.cupos_usados(), 1)
+        self.assertEqual(generacion.tomar_siguiente("w1").worker, "w1")
+        self.assertIsNone(generacion.tomar_siguiente("w2"))
 
-    def test_una_en_curso_sin_latido_se_retoma(self):
-        self.subir(("AAAA11",))
-        generacion.tomar_siguiente()
+    def test_una_en_curso_sin_latido_la_retoma_otro_y_el_primero_se_detiene(self):
+        self.subir(("AAAA11", "BBBB22"), n_cartas_paquete=1)
+        del_primero = generacion.tomar_siguiente("w1")
         GeneracionCartas.objects.update(actualizado=timezone.now() - timedelta(minutes=30))
-        self.assertIsNotNone(generacion.procesar_siguiente())
-        self.assertEqual(GeneracionCartas.objects.get().estado, GeneracionCartas.Estado.OK)
-
-    def test_si_devolvieron_sus_cupos_mientras_tanto_el_worker_no_la_cierra(self):
-        self.subir(("AAAA11",))
-        corrida = generacion.tomar_siguiente()
-        GeneracionCartas.objects.filter(pk=corrida.pk).update(estado=GeneracionCartas.Estado.FALLIDO)
+        generacion.procesar_siguiente("w2")
+        corrida = GeneracionCartas.objects.get()
+        self.assertEqual((corrida.estado, corrida.worker), (GeneracionCartas.Estado.OK, "w2"))
+        archivos = corrida.archivos.count()
+        # el primero «despierta»: su latido ya no es de él, no genera ni cierra nada
         with self.assertLogs("procesos.generacion", level="WARNING"):
-            generacion.ejecutar(corrida)
+            generacion.ejecutar(del_primero)
         corrida.refresh_from_db()
+        self.assertEqual((corrida.estado, corrida.archivos.count()), (GeneracionCartas.Estado.OK, archivos))
+        self.assertEqual(self.cupos_usados(), 2)
+
+    def test_al_detenerse_vuelve_a_la_cola_y_se_retoma_desde_el_ultimo_paquete(self):
+        from motor import plantilla
+
+        self.subir(("AAAA11", "BBBB22", "CCCC33"), n_cartas_paquete=1)
+        llamadas = []
+
+        def detener_tras_el_primero():
+            raise generacion.Detenido()
+
+        generacion.procesar_siguiente("w1", al_latir=detener_tras_el_primero)
+        corrida = GeneracionCartas.objects.get()
+        self.assertEqual((corrida.estado, corrida.lotes_hechos), (GeneracionCartas.Estado.PENDIENTE, 1))
+
+        original = plantilla._armar_lote
+        with mock.patch.object(plantilla, "_armar_lote",
+                               side_effect=lambda *a: llamadas.append(a[1]) or original(*a)):
+            with override_settings(), mock.patch.object(plantilla, "_en_proceso_aparte", plantilla._llamar):
+                generacion.procesar_siguiente("w2")
+        corrida.refresh_from_db()
+        self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
+        self.assertEqual(llamadas, [2, 3])   # el paquete 1 no se volvió a armar
+        self.assertEqual(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS).count(), 3)
+        seguimiento = corrida.archivos.get(tipo=ArchivoGenerado.Tipo.SEGUIMIENTO)
+        df = pd.read_excel(Path(_TMP_SALIDAS) / seguimiento.ruta)
+        self.assertEqual(sorted(df["N° de Carta"]), [1, 2, 3])
+        self.assertEqual(self.cupos_usados(), 3)
+
+    def test_si_la_cancelan_mientras_se_genera_el_worker_se_detiene_y_borra_lo_escrito(self):
+        self.subir(("AAAA11", "BBBB22"), n_cartas_paquete=1)
+
+        def cancelar_al_primer_paquete():
+            GeneracionCartas.objects.update(actualizado=timezone.now() - timedelta(minutes=30))
+            generacion.cancelar(GeneracionCartas.objects.get().pk, self.j1, "prueba")
+
+        with self.assertLogs("procesos.generacion", level="WARNING"):
+            generacion.procesar_siguiente("w1", al_latir=cancelar_al_primer_paquete)
+        corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.FALLIDO)
         self.assertFalse(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS).exists())
+        self.assertFalse((Path(_TMP_SALIDAS) / corrida.carpeta_salida / "cartas").exists())
+        self.assertEqual(self.cupos_usados(), 0)
 
     def test_si_la_generacion_falla_los_cupos_vuelven(self):
         self.subir(("AAAA11", "BBBB22"))
         with mock.patch("procesos.generacion.generar_cartas_certificadas", side_effect=RuntimeError("x")), \
                 self.assertLogs("procesos.generacion", level="ERROR"):
-            generacion.procesar_siguiente()
+            generacion.procesar_siguiente("w1")
         corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.FALLIDO)
         self.assertIn("error inesperado", corrida.mensaje_error)
         self.assertEqual(self.cupos_usados(), 0)
+
+    def test_una_en_cola_se_puede_cancelar(self):
+        self.subir(("AAAA11", "BBBB22"))
+        corrida = GeneracionCartas.objects.get()
+        with self.assertLogs("procesos.generacion", level="WARNING"):
+            resp = self.client.post(f"/resultado/{corrida.pk}/cancelar/", follow=True)
+        self.assertContains(resp, "Volvieron 2 cupos a la agenda")
+        corrida.refresh_from_db()
+        self.assertEqual(corrida.estado, GeneracionCartas.Estado.FALLIDO)
+        self.assertEqual(self.cupos_usados(), 0)
+        self.assertIsNone(generacion.procesar_siguiente("w1"))
+
+    def test_una_que_se_esta_generando_no_se_cancela(self):
+        self.subir(("AAAA11",))
+        corrida = generacion.tomar_siguiente("w1")
+        resp = self.client.post(f"/resultado/{corrida.pk}/cancelar/", follow=True)
+        self.assertContains(resp, "ya no se puede cancelar")
+        self.assertEqual(self.cupos_usados(), 1)
+
+    def test_no_se_cancela_la_de_otro_juzgado(self):
+        self.subir(("AAAA11",))
+        corrida = GeneracionCartas.objects.get()
+        j2 = crear_juzgado(slug="jpl2", nombre="2do JPL", dia_desde=11, dia_hasta=20)
+        crear_usuario("sec2", rol=Rol.SECRETARIO, juzgado=j2)
+        self.client.logout()
+        ingresar(self.client, "sec2")
+        self.assertEqual(self.client.post(f"/resultado/{corrida.pk}/cancelar/").status_code, 403)
+
+
+class ProcesoDelPaqueteTest(TestCase):
+    def test_un_paquete_colgado_se_corta(self):
+        from motor import plantilla
+
+        with mock.patch.object(plantilla, "TIEMPO_MAXIMO_LOTE", 1):
+            with self.assertRaises(plantilla.LoteInterrumpido):
+                plantilla._en_proceso_aparte(reloj.sleep, 30)
 
 
 class TopePorArchivoTest(_Base):
@@ -222,6 +292,58 @@ class EnvioRepetidoTest(_Base):
         resp = self._responder(resp, "incluir")
         self.assertContains(resp, "La nómina guardada ya no está disponible")
         self.assertEqual(GeneracionCartas.objects.count(), 1)
+
+    def test_la_misma_nomina_guardada_no_se_usa_dos_veces(self):
+        """Doble clic en «Continuar»: el segundo envío no crea otra corrida."""
+        self.subir(("AAAA11",))
+        pregunta = self.subir(("AAAA11", "BBBB22"))
+        token = pregunta.context["form"]["nomina_guardada"].value()
+        carpeta, _ = generacion.leer_nomina_guardada(token, self.j1, self.sec1)
+        (Path(_TMP_SALIDAS) / carpeta / generacion.RECLAMADA).touch()   # el primer envío la tomó
+        resp = self._responder(pregunta, "omitir")
+        self.assertContains(resp, "ya se está procesando")
+        self.assertEqual(GeneracionCartas.objects.count(), 1)
+        self.assertTrue((Path(_TMP_SALIDAS) / carpeta / generacion.NOMINA).exists())
+
+    def test_una_carpeta_la_usa_una_sola_corrida(self):
+        from django.db import IntegrityError, transaction
+        self.subir(("AAAA11",))
+        corrida = GeneracionCartas.objects.get()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            GeneracionCartas.objects.create(
+                juzgado=self.j1, usuario=self.sec1, nombre_archivo_nomina="x.xlsx",
+                carpeta_salida=corrida.carpeta_salida,
+            )
+
+    def test_si_falta_cupo_despues_de_confirmar_la_nomina_sigue_guardada(self):
+        self.bloque.cupos_totales = 1
+        self.bloque.save()
+        self.subir(("AAAA11",), tipo="CITACION_SENTENCIA")
+        pregunta = self.subir(("AAAA11", "BBBB22"), tipo="CITACION_SENTENCIA")
+        token = pregunta.context["form"]["nomina_guardada"].value()
+        resp = self.client.post("/subir/", {
+            "juzgado": "jpl1", "nomina_guardada": token, "repetidas": "incluir",
+            "tipo_carta": "CITACION_SENTENCIA", "nombre_firmante": "Secretaria de Prueba",
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+        })
+        self.assertContains(resp, "Faltan 2 cupos")
+        self.assertContains(resp, "quedó guardada")
+        self.assertContains(resp, 'name="nomina_guardada"')
+        self.assertContains(resp, 'name="repetidas" value="incluir"')
+        # se agregan cupos y se continúa con la misma nómina
+        self.bloque.cupos_totales = 10
+        self.bloque.save()
+        nuevo_token = resp.context["form"]["nomina_guardada"].value()
+        self.client.post("/subir/", {
+            "juzgado": "jpl1", "nomina_guardada": nuevo_token, "repetidas": "incluir",
+            "tipo_carta": "CITACION_SENTENCIA", "nombre_firmante": "Secretaria de Prueba",
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+        })
+        self.assertEqual(GeneracionCartas.objects.count(), 2)
+
+    def test_el_token_exige_el_formato_de_carpeta(self):
+        token = generacion.firmar_nomina_guardada(f"jpl1/../jpl2/{'a' * 32}", self.j1, self.sec1, "n.xlsx")
+        self.assertIsNone(generacion.leer_nomina_guardada(token, self.j1, self.sec1))
 
     def test_un_token_alterado_no_sirve(self):
         resp = self.client.post("/subir/", {

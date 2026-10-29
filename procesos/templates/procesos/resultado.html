@@ -29,6 +29,12 @@
       {% if generacion.lotes_total %}<progress class="avance mt" max="{{ generacion.lotes_total }}" value="{{ generacion.lotes_hechos }}">{{ generacion.lotes_hechos }} de {{ generacion.lotes_total }}</progress>{% endif %}
       <p class="campo__ayuda mt">Las cartas se arman en segundo plano: puedes cerrar esta pantalla y volver desde el Inicio. Se actualiza sola cada {{ recargar_cada }} segundos.</p>
       {% endif %}
+      {% if generacion.estado == "PENDIENTE" or interrumpida %}
+      <form method="post" action="{% url 'procesos:cancelar_generacion' generacion.pk %}" class="mt" data-confirmar="¿Cancelar esta generación? Sus cupos vuelven a la agenda.">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--chico">Cancelar la generación</button>
+      </form>
+      {% endif %}
       {% endif %}
     </div>
     <dl class="datos">

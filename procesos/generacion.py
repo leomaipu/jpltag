@@ -38,6 +38,8 @@ El worker es uno solo: procesa una corrida a la vez, en orden de llegada.
 
 import json
 import logging
+import os
+import re
 import shutil
 import uuid
 import zipfile
@@ -66,10 +68,11 @@ from .models import ArchivoGenerado, GeneracionCartas
 
 logger = logging.getLogger(__name__)
 
-# El worker anota un latido en la corrida al terminar cada paquete (a lo
-# más ~30 s con 100 cartas). Una corrida «en curso» sin latido por más que
-# esto quedó huérfana: el worker murió o se reinició a la mitad.
-CORRIDA_INTERRUMPIDA_TRAS = timedelta(minutes=10)
+# El worker anota un latido en la corrida al terminar cada paquete (menos
+# de 1 min con 50 cartas; un paquete se corta a los
+# motor.plantilla.TIEMPO_MAXIMO_LOTE). Una corrida «en curso» sin latido por
+# más que esto quedó huérfana —el worker murió a la mitad— y otro la retoma.
+CORRIDA_INTERRUMPIDA_TRAS = timedelta(minutes=7)
 
 TRABAJO = "trabajo.json"
 
@@ -84,7 +87,11 @@ ESTADOS_ACTIVOS = (GeneracionCartas.Estado.PENDIENTE, GeneracionCartas.Estado.EN
 
 
 class GeneracionRechazada(Exception):
-    """La generación no se empezó; el mensaje dice qué ajustar."""
+    """La generación no se empezó; el mensaje dice qué ajustar. `token`, si
+    no está vacío, identifica la nómina que quedó guardada (sin volver a
+    subirla)."""
+
+    token = ""
 
 
 class EnvioRepetido(GeneracionRechazada):
@@ -96,7 +103,6 @@ class EnvioRepetido(GeneracionRechazada):
         super().__init__(mensaje)
         self.n_repetidas = n_repetidas
         self.n_total = n_total
-        self.token = ""
 
 
 # Qué hacer con las patentes que ya recibieron carta (EnvioRepetido).
@@ -117,6 +123,7 @@ VIGENCIA_NOMINA_GUARDADA = timedelta(hours=12)
 _SAL_NOMINA_GUARDADA = "jpltag.nomina-guardada"
 NOMINA = "nomina_original.xlsx"
 TIPO_CAUSAS = "tipo_causas.xlsx"
+RECLAMADA = ".en-uso"   # marca de una nómina guardada que un envío está usando
 
 
 class CuposInsuficientes(Exception):
@@ -359,7 +366,7 @@ def leer_nomina_guardada(token, juzgado, usuario):
     carpeta = datos.get("c", "")
     if (
         datos.get("j") != juzgado.pk or datos.get("u") != usuario.pk
-        or not carpeta.startswith(f"{juzgado.slug}/")
+        or not re.fullmatch(rf"{re.escape(juzgado.slug)}/[0-9a-f]{{32}}", carpeta)
         or not (Path(settings.SALIDAS_ROOT) / carpeta / NOMINA).is_file()
         or GeneracionCartas.objects.filter(carpeta_salida=carpeta).exists()
     ):
@@ -392,6 +399,19 @@ def _fuera_de_todo_rango(otro_rango):
         pat: g for pat, g in otro_rango.items()
         if not any(desde <= g["dia"] <= hasta for desde, hasta in rangos)
     }
+
+
+def _reclamar(carpeta_abs):
+    """Toma una nómina guardada para usarla, de forma atómica: si dos envíos
+    llegan con el mismo token (doble clic), solo uno sigue."""
+    try:
+        os.close(os.open(carpeta_abs / RECLAMADA, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        raise GeneracionRechazada(
+            "Esa nómina ya se está procesando (¿se envió dos veces?). Revisa el Inicio antes de volver a enviarla."
+        ) from None
+    except FileNotFoundError:
+        raise GeneracionRechazada("La nómina guardada ya no está disponible: vuelve a elegir el Excel.") from None
 
 
 def _guardar_subida(archivo, ruta):
@@ -427,24 +447,28 @@ def preparar(juzgado, usuario, solicitud):
     si no se empezó."""
     carpeta_rel = solicitud.nomina_guardada or f"{juzgado.slug}/{uuid.uuid4().hex}"
     carpeta_abs = Path(settings.SALIDAS_ROOT) / carpeta_rel
-    if not solicitud.nomina_guardada:
+    if solicitud.nomina_guardada:
+        _reclamar(carpeta_abs)
+    else:
         carpeta_abs.mkdir(parents=True, exist_ok=True)
         _guardar_subida(solicitud.archivo_nomina, carpeta_abs / NOMINA)
         if solicitud.archivo_tipo_causas:
             _guardar_subida(solicitud.archivo_tipo_causas, carpeta_abs / TIPO_CAUSAS)
     try:
         corrida = _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs)
-    except EnvioRepetido as exc:
-        # Queda guardada esperando la respuesta: no hay que volver a subirla.
-        exc.token = firmar_nomina_guardada(carpeta_rel, juzgado, usuario, solicitud.nombre_nomina)
-        raise
-    except GeneracionRechazada:
-        # No se empezó: no quedan en disco los datos personales de la nómina.
-        shutil.rmtree(carpeta_abs, ignore_errors=True)
+    except GeneracionRechazada as exc:
+        if solicitud.nomina_guardada or isinstance(exc, EnvioRepetido):
+            # Queda guardada esperando la respuesta (o que se corrija lo que
+            # faltaba, p. ej. cupos): no hay que volver a subirla.
+            (carpeta_abs / RECLAMADA).unlink(missing_ok=True)
+            exc.token = firmar_nomina_guardada(carpeta_rel, juzgado, usuario, solicitud.nombre_nomina)
+        else:
+            # No se empezó: no quedan en disco los datos personales de la nómina.
+            shutil.rmtree(carpeta_abs, ignore_errors=True)
         raise
     if settings.JPLTAG_GENERAR_EN_LA_PETICION and corrida.estado == GeneracionCartas.Estado.PENDIENTE:
         # Sin worker (pruebas, desarrollo local): la misma fase 2, ahora mismo.
-        procesar_siguiente()
+        procesar_siguiente("en-la-peticion")
         corrida.refresh_from_db()
     return corrida
 
@@ -477,8 +501,10 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
                 f"({MESES[mes_pred - 1]} {anio_pred}) de esta nómina.",
             )
 
-        incluidos = _resolver_repetidas(juzgado, solicitud, anio_pred, mes_pred, incluidos)
+        # El paquete se revisa antes de preguntar por las repetidas: así no se
+        # pregunta algo para rechazarlo después.
         _revisar_paquete(len(incluidos), solicitud.n_cartas_paquete)
+        incluidos = _resolver_repetidas(juzgado, solicitud, anio_pred, mes_pred, incluidos)
 
         fuera_de_rango = _fuera_de_todo_rango(otro_rango)
         avisos = dict(avisos)
@@ -562,10 +588,20 @@ def _leer_trabajo(carpeta_abs):
 # Fase 2 — ejecutar (en el worker)
 # ══════════════════════════════════════════════════════════════════════
 
-def tomar_siguiente():
-    """La corrida más antigua en cola, ya marcada EN_CURSO, o None. También
-    retoma una «en curso» huérfana (el worker murió a la mitad): se rehace
-    completa, con los mismos cupos, y los archivos se sobrescriben."""
+class Detenido(Exception):
+    """El worker recibió la orden de detenerse (SIGTERM): la corrida vuelve a
+    la cola y se retoma desde el último paquete terminado."""
+
+
+class CorridaPerdida(Exception):
+    """La corrida dejó de ser de este worker: alguien la canceló o devolvió
+    sus cupos, u otro worker la retomó por falta de latido."""
+
+
+def tomar_siguiente(worker):
+    """La corrida más antigua en cola, ya marcada EN_CURSO y a nombre de
+    `worker`, o None. También retoma una «en curso» sin latido (su worker
+    murió): sigue desde el último paquete terminado, con los mismos cupos."""
     with transaction.atomic():
         corrida = (
             GeneracionCartas.objects.select_for_update(skip_locked=True)
@@ -579,26 +615,45 @@ def tomar_siguiente():
         if corrida is None:
             return None
         corrida.estado = GeneracionCartas.Estado.EN_CURSO
-        corrida.lotes_hechos = 0
-        corrida.save(update_fields=["estado", "lotes_hechos", "actualizado"])
+        corrida.worker = worker
+        corrida.save(update_fields=["estado", "worker", "actualizado"])
     return corrida
 
 
-def retomar_huerfanas():
-    """Al arrancar el worker (es uno solo), lo que quedó «en curso» es de un
-    worker anterior que se detuvo: vuelve a la cola sin esperar los 10 min."""
-    return GeneracionCartas.objects.filter(estado=GeneracionCartas.Estado.EN_CURSO).update(
-        estado=GeneracionCartas.Estado.PENDIENTE, actualizado=timezone.now(),
-    )
-
-
-def procesar_siguiente(al_latir=None):
+def procesar_siguiente(worker, al_latir=None):
     """Toma y genera la siguiente corrida en cola. Devuelve la corrida
     procesada, o None si no había nada. `al_latir()` se llama después de
-    cada paquete (el worker anota ahí su latido)."""
-    corrida = tomar_siguiente()
+    cada paquete: el worker anota ahí su latido y, si debe detenerse, lanza
+    Detenido."""
+    corrida = tomar_siguiente(worker)
     if corrida is not None:
         ejecutar(corrida, al_latir=al_latir)
+    return corrida
+
+
+def cancelar(corrida_id, juzgado, motivo):
+    """Saca de la cola una corrida que no ha empezado, o una «en curso» sin
+    latido, y devuelve sus cupos. Devuelve la corrida, o None si ya no se
+    puede (terminó, o un worker la está generando)."""
+    with transaction.atomic():
+        corrida = (
+            GeneracionCartas.objects.select_for_update()
+            .filter(pk=corrida_id, juzgado=juzgado, estado__in=ESTADOS_ACTIVOS).first()
+        )
+        if corrida is None or (
+            corrida.estado == GeneracionCartas.Estado.EN_CURSO and not corrida_interrumpida(corrida)
+        ):
+            return None
+        tomados = {int(pk): n for pk, n in corrida.cupos_por_bloque.items()}
+        devolver_cupos(tomados)
+        corrida.estado = GeneracionCartas.Estado.FALLIDO
+        corrida.mensaje_error = motivo
+        corrida.cupos_por_bloque = {}
+        corrida.patentes = []
+        corrida.save(update_fields=["estado", "mensaje_error", "cupos_por_bloque", "patentes", "actualizado"])
+    _limpiar_trabajo(corrida, quitar_cartas=True)
+    logger.warning("Generación %s (%s) cancelada; cupos devueltos: %s", corrida.pk, juzgado.slug, tomados)
+    corrida.cupos_devueltos = sum(tomados.values())
     return corrida
 
 
@@ -642,14 +697,26 @@ def _bloques_tomados(corrida):
     }
 
 
+def _limpiar_trabajo(corrida, *, quitar_cartas=False):
+    """Al cerrar: trabajo.json (copia de todos los datos de la nómina) ya no
+    sirve; y si las cartas no salieron, tampoco sus archivos."""
+    carpeta_abs = Path(settings.SALIDAS_ROOT) / corrida.carpeta_salida
+    (carpeta_abs / TRABAJO).unlink(missing_ok=True)
+    if quitar_cartas:
+        shutil.rmtree(carpeta_abs / "cartas", ignore_errors=True)
+
+
+def _es_mia(consulta, corrida):
+    return consulta.filter(pk=corrida.pk, estado=GeneracionCartas.Estado.EN_CURSO, worker=corrida.worker)
+
+
 def _cerrar(corrida, *, devolver=None, archivos=(), **campos):
     """Guarda el resultado, devuelve cupos y registra los archivos en una
-    sola transacción, y solo si la corrida sigue siendo de este worker
-    (nadie devolvió sus cupos desde la agenda mientras tanto)."""
+    sola transacción, y solo si la corrida sigue siendo de este worker."""
     with transaction.atomic():
-        actual = GeneracionCartas.objects.select_for_update().get(pk=corrida.pk)
-        if actual.estado != GeneracionCartas.Estado.EN_CURSO:
-            logger.warning("La generación %s cambió a %s mientras se procesaba; no se cierra", corrida.pk, actual.estado)
+        actual = _es_mia(GeneracionCartas.objects.select_for_update(), corrida).first()
+        if actual is None:
+            logger.warning("La generación %s ya no es de este worker; no se cierra", corrida.pk)
             return False
         for nombre, valor in campos.items():
             setattr(actual, nombre, valor)
@@ -658,11 +725,13 @@ def _cerrar(corrida, *, devolver=None, archivos=(), **campos):
         for ruta, tipo in archivos:
             _registrar_archivo(actual, ruta, tipo)
     corrida.refresh_from_db()
+    _limpiar_trabajo(corrida, quitar_cartas=corrida.estado == GeneracionCartas.Estado.FALLIDO)
     return True
 
 
 def ejecutar(corrida, al_latir=None):
-    """Genera los paquetes de cartas de una corrida ya tomada (EN_CURSO)."""
+    """Genera los paquetes de cartas de una corrida ya tomada (EN_CURSO) por
+    `corrida.worker`, desde el primer paquete que falte."""
     juzgado = corrida.juzgado
     carpeta_abs = Path(settings.SALIDAS_ROOT) / corrida.carpeta_salida
     tomados = Counter({int(pk): n for pk, n in corrida.cupos_por_bloque.items()})
@@ -671,12 +740,13 @@ def ejecutar(corrida, al_latir=None):
         incluidos = trabajo["incluidos"]
         paquete = trabajo["n_cartas_paquete"] or len(incluidos)
         total_lotes = -(-len(incluidos) // paquete)
-        GeneracionCartas.objects.filter(pk=corrida.pk).update(lotes_total=total_lotes, actualizado=timezone.now())
+        _es_mia(GeneracionCartas.objects, corrida).update(lotes_total=total_lotes, actualizado=timezone.now())
 
         def _latido(lotes_hechos):
-            GeneracionCartas.objects.filter(pk=corrida.pk, estado=GeneracionCartas.Estado.EN_CURSO).update(
+            if not _es_mia(GeneracionCartas.objects, corrida).update(
                 lotes_hechos=lotes_hechos, actualizado=timezone.now(),
-            )
+            ):
+                raise CorridaPerdida(corrida.pk)
             if al_latir:
                 al_latir()
 
@@ -684,8 +754,20 @@ def ejecutar(corrida, al_latir=None):
             incluidos, juzgado.slug, trabajo["slots"], trabajo["n_cartas_paquete"],
             _config_motor(juzgado, trabajo, corrida.tipo_carta),
             carpeta_salida=str(carpeta_abs / "cartas"), al_terminar_lote=_latido,
-            aislar_lotes=True,
+            aislar_lotes=True, lotes_listos=corrida.lotes_hechos,
         )
+    except Detenido:
+        # Vuelve a la cola tal como está: el próximo worker sigue desde lotes_hechos.
+        _es_mia(GeneracionCartas.objects, corrida).update(estado=GeneracionCartas.Estado.PENDIENTE, worker="")
+        logger.info("Generación %s devuelta a la cola al detener el worker", corrida.pk)
+        return corrida
+    except CorridaPerdida:
+        logger.warning("La generación %s dejó de ser de este worker; se deja de generar", corrida.pk)
+        corrida.refresh_from_db()
+        if corrida.estado == GeneracionCartas.Estado.FALLIDO:
+            # La cancelaron mientras se generaba: lo que alcanzó a escribir sobra.
+            _limpiar_trabajo(corrida, quitar_cartas=True)
+        return corrida
     except Exception as exc:
         logger.exception("Falló la generación de cartas %s (%s)", corrida.pk, juzgado.slug)
         _cerrar(

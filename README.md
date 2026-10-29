@@ -150,8 +150,11 @@ La nómina del mes se sube **una sola vez**. La web la lee, agrupa y filtra,
 hace los controles, reserva la agenda y deja la corrida «En cola» (unos
 segundos). El worker (`python manage.py procesar_generaciones`, contenedor
 aparte, uno solo) arma los paquetes de cartas sin el límite de 180 s de una
-petición: una nómina completa son ~9.000 cartas y 15–45 minutos. La pantalla
-de resultado muestra «paquete N de M» y se recarga sola. Cada paquete se
+petición: una nómina completa son miles de cartas (medido el 29-oct-2026 con
+PostgreSQL y 1 CPU: 15.447 cartas en 25 minutos). La pantalla de resultado
+muestra «paquete N de M», se recarga sola y permite cancelar mientras está
+en cola. Si el worker se detiene, la corrida sigue después desde el último
+paquete terminado. Cada paquete se
 arma en un proceso hijo que termina al guardarlo: así la memoria no crece
 (medido el 29-oct-2026: sin esto, ~2,5 MB por carta quedaban tomados y el
 contenedor moría pasadas las 300 cartas).

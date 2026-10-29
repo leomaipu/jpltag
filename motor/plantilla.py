@@ -452,6 +452,11 @@ def validar_plantilla(archivo, tipo=None):
     return True, ""
 
 
+# Un lote de 50 cartas tarda menos de 1 min con 1 CPU (medido con las
+# patentes más largas de la nómina real, 29-oct-2026).
+TIEMPO_MAXIMO_LOTE = 300  # s
+
+
 class LoteInterrumpido(Exception):
     """El proceso que armaba un lote terminó sin entregar el resultado (por
     ejemplo, el sistema lo cerró por falta de memoria)."""
@@ -465,34 +470,36 @@ class ErrorEnLote(Exception):
         self.detalle = detalle
 
 
+def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
+    """Filas del Excel de seguimiento de un lote: una por causa, con el N° de
+    Carta de su patente (correlativo desde `primera_carta`)."""
+    anio_actual = ahora_chile().year
+    return [
+        {
+            "Lote": num_lote,
+            "N° de Carta": numero_carta,
+            "Tipo de carta": tipo_carta,
+            "Patente": patente,
+            "N° de Parte": causa["nroParte"],
+            "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
+        }
+        for numero_carta, (patente, info) in enumerate(lote_patentes, primera_carta)
+        for causa in info["causas"]
+    ]
+
+
 def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plantilla, max_causas,
                 nombre_archivo):
     """Renderiza y guarda UN archivo de cartas. Devuelve sus filas del Excel
     de seguimiento (una por causa)."""
-    tipo_carta = config.get("tipo_carta", TIPO_CITACION)
-    anio_actual = ahora_chile().year
-    seguimiento_lote = []
+    numero_por_patente = {pat: n for n, (pat, _) in enumerate(lote_patentes, primera_carta)}
     documentos_carta = []
-    pat_vista = None
-    numero_carta = primera_carta - 1
     for pg in expandir_en_paginas(dict(lote_patentes), max_causas):
-        if pg["patente"] != pat_vista:
-            numero_carta += 1
-            pat_vista = pg["patente"]
-            for causa in pg["info"]["causas"]:
-                seguimiento_lote.append({
-                    "Lote": num_lote,
-                    "N° de Carta": numero_carta,
-                    "Tipo de carta": tipo_carta,
-                    "Patente": pg["patente"],
-                    "N° de Parte": causa["nroParte"],
-                    "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
-                })
         slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
-        contexto = construir_contexto(pg, slot, numero_carta, config)
+        contexto = construir_contexto(pg, slot, numero_por_patente[pg["patente"]], config)
         documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
     combinar_cartas(documentos_carta).save(nombre_archivo)
-    return seguimiento_lote
+    return _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, config.get("tipo_carta", TIPO_CITACION))
 
 
 def _llamar(funcion, *args):
@@ -524,6 +531,12 @@ def _en_proceso_aparte(funcion, *args):
     proceso.start()
     escritura.close()
     try:
+        if not lectura.poll(TIEMPO_MAXIMO_LOTE):
+            # Colgado (p. ej. un lock que el fork heredó tomado): sin esto el
+            # worker esperaría para siempre y la cola entera se detendría.
+            proceso.kill()
+            proceso.join()
+            raise LoteInterrumpido(f"el lote no terminó en {TIEMPO_MAXIMO_LOTE} s y se cortó")
         estado, valor = lectura.recv()
     except EOFError:
         proceso.join()
@@ -548,7 +561,7 @@ def crear_carpeta_envio(prefijo="Envio"):
 
 
 def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, config, carpeta_salida=None,
-                                al_terminar_lote=None, aislar_lotes=False):
+                                al_terminar_lote=None, aislar_lotes=False, lotes_listos=0):
     """Genera las cartas de citación en lotes correlativos .docx, todas
     dentro de una carpeta para este envío, junto con el Excel de
     seguimiento (Lote / N° de Carta / N° de Parte / Rol).
@@ -591,6 +604,10 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
     Con `aislar_lotes`, cada lote se arma en un proceso hijo que termina al
     guardarlo (ver _en_proceso_aparte): para generar miles de cartas
     seguidas sin que la memoria crezca.
+
+    `lotes_listos`: los primeros N lotes ya se armaron en una corrida
+    anterior que se interrumpió; si su archivo está, no se vuelven a armar
+    (solo se recalculan sus filas del seguimiento).
     """
     resultado = {"carpeta": None, "archivos": [], "seguimiento": None, "errores": [], "patentes_fallidas": []}
 
@@ -623,6 +640,10 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         # el N° de Carta de una patente no depende de que otro lote falle.
         primera_carta = numero_carta_global + 1
         numero_carta_global += len(lote_patentes)
+        if num_lote <= lotes_listos and os.path.isfile(nombre_archivo):
+            seguimiento.extend(_seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta))
+            resultado["archivos"].append(nombre_archivo)
+            continue
         try:
             seguimiento_lote = armar(
                 _armar_lote, lote_patentes, num_lote, primera_carta, slots, config,

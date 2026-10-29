@@ -5,7 +5,6 @@ cada una conserva el texto propio de su Juzgado (ordinal del Juzgado,
 diferencias de redacción del 2do). Ninguna prueba usa datos reales.
 """
 
-import io
 import os
 import tempfile
 import unittest
@@ -184,6 +183,44 @@ class TestResolverPlantilla(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("nombre del infractor", msg)
             self.assertIn("la patente", msg)
+
+    def _plantilla(self, d, *lineas):
+        ruta = os.path.join(d, "propia.docx")
+        doc = Document()
+        for linea in lineas:
+            doc.add_paragraph(linea)
+        tabla = doc.add_table(rows=3, cols=1)
+        tabla.rows[0].cells[0].text = "{%tr for causa in causas %}"
+        tabla.rows[1].cells[0].text = "{{ causa.rol }} {{ causa.lugar }}"
+        tabla.rows[2].cells[0].text = "{%tr endfor %}"
+        doc.save(ruta)
+        return ruta
+
+    def test_validar_rechaza_un_marcador_mal_escrito(self):
+        with tempfile.TemporaryDirectory() as d:
+            ruta = self._plantilla(
+                d, "{{ nombre_infractor }} {{ patente }} {{ clausula_audiencia }}", "{{ domicilio_infrator }}",
+            )
+            ok, msg = validar_plantilla(ruta, "CITACION")
+        self.assertFalse(ok)
+        self.assertIn("marcador que no existe", msg)
+        self.assertIn("domicilio_infrator", msg)
+
+    def test_validar_rechaza_un_campo_de_causa_mal_escrito(self):
+        with tempfile.TemporaryDirectory() as d:
+            ruta = self._plantilla(d, "{{ nombre_infractor }} {{ patente }} {{ clausula_audiencia }}")
+            doc = Document(ruta)
+            doc.tables[0].rows[1].cells[0].text = "{{ causa.lugar }} {{ causa.dispocision }}"
+            doc.save(ruta)
+            ok, msg = validar_plantilla(ruta, "CITACION")
+        self.assertFalse(ok)
+        self.assertIn("dispocision", msg)
+
+    def test_el_rut_no_es_obligatorio(self):
+        """Hay juzgados cuya carta de citación no imprime el RUT."""
+        with tempfile.TemporaryDirectory() as d:
+            ruta = self._plantilla(d, "{{ nombre_infractor }} {{ patente }} {{ clausula_audiencia }}")
+            self.assertEqual(validar_plantilla(ruta, "CITACION"), (True, ""))
 
     def test_citacion_no_pasa_como_sentencia(self):
         ok, msg = validar_plantilla(ruta_plantilla_defecto("jpl1", "", "CITACION"), "SENTENCIA")

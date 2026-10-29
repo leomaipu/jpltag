@@ -10,6 +10,13 @@
   <div class="tribarra"><i></i></div>
 </header>
 
+{% if not juzgados and not perfil.es_administrador_general %}
+<section class="bloque" role="alert">
+  <h2 class="seccion__titulo"><span class="estado estado--error">Sin juzgado asignado</span></h2>
+  <p class="texto-suave">Tu usuario todavía no tiene un juzgado asignado, así que no puedes ver ni generar nada. Pide a un Administrador que te lo asigne.</p>
+</section>
+{% endif %}
+
 <section class="bloque bloque--azul heroe" aria-labelledby="heroe-titulo">
   {% if perfil.puede_generar_cartas %}
   <h2 id="heroe-titulo">Una carta por patente, con todas sus multas del mes</h2>
@@ -34,7 +41,8 @@
           <span class="fila__titulo">
             {{ g.get_tipo_carta_display }}
             {% if g.estado == "OK" %}<span class="estado">Lista</span>
-            {% elif g.estado == "EN_CURSO" %}<span class="estado estado--aviso">En curso</span>
+            {% elif g.estado == "EN_CURSO" %}<span class="estado estado--aviso">Generando</span>
+            {% elif g.estado == "PENDIENTE" %}<span class="estado estado--aviso">En cola</span>
             {% elif g.estado == "CON_ERRORES" %}<span class="estado estado--aviso">Con errores</span>
             {% else %}<span class="estado estado--error">Falló</span>{% endif %}
           </span>

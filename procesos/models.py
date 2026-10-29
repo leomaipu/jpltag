@@ -21,9 +21,11 @@ class GeneracionCartas(models.Model):
         OK = "OK", "Completado"
         CON_ERRORES = "CON_ERRORES", "Completado con errores"
         FALLIDO = "FALLIDO", "Falló"
-        # Se anota al reservar cupos de la agenda y se cierra al terminar. Si
-        # el proceso muere en el medio (timeout, falta de memoria, reinicio)
-        # queda así, y desde la agenda se pueden devolver sus cupos.
+        # La web reservó la agenda y dejó el trabajo listo: espera al worker
+        # (manage.py procesar_generaciones, ver procesos/generacion.py).
+        PENDIENTE = "PENDIENTE", "En cola"
+        # El worker la está generando. Si muere en el medio, al volver la
+        # retoma; si no vuelve, desde la agenda se pueden devolver sus cupos.
         EN_CURSO = "EN_CURSO", "En curso"
 
     juzgado = models.ForeignKey(Juzgado, on_delete=models.PROTECT, related_name="generaciones")
@@ -31,6 +33,12 @@ class GeneracionCartas(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="generaciones_cartas",
     )
     creado = models.DateTimeField(auto_now_add=True)
+    # Latido del worker: se actualiza al terminar cada paquete de cartas.
+    actualizado = models.DateTimeField(auto_now=True)
+    lotes_total = models.PositiveIntegerField(default=0)
+    lotes_hechos = models.PositiveIntegerField(default=0)
+    # El worker que la está generando: solo él anota su avance y la cierra.
+    worker = models.CharField(max_length=100, blank=True)
 
     nombre_archivo_nomina = models.CharField(max_length=255)
     tipo_carta = models.CharField(max_length=20, choices=TipoCarta.choices, default=TipoCarta.CITACION)
@@ -46,13 +54,18 @@ class GeneracionCartas(models.Model):
     total_sin_causas_validas = models.PositiveIntegerField(default=0)
     total_sin_cupo_agenda = models.PositiveIntegerField(default=0)
 
+    # Única: una nómina guardada (procesos.generacion) la usa una sola corrida.
     carpeta_salida = models.CharField(
-        max_length=500,
+        max_length=500, unique=True,
         help_text="Ruta relativa a settings.SALIDAS_ROOT donde quedaron los archivos de esta corrida.",
     )
     avisos = models.JSONField(
         default=dict, blank=True,
         help_text="Avisos del motor (filas sin patente, disposiciones sin multa, etc.), para mostrar en el resultado.",
+    )
+    patentes = models.JSONField(
+        default=list, blank=True,
+        help_text="Patentes que recibieron carta en esta corrida: sirve para avisar si se repite el envío.",
     )
     cupos_por_bloque = models.JSONField(
         default=dict, blank=True,

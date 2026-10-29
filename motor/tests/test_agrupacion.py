@@ -76,6 +76,17 @@ class TestConstruirGrupos(unittest.TestCase):
         self.assertEqual(avisos["filas_sin_patente"], 1)
         self.assertEqual(set(grupos.keys()), {"AAAA11"})
 
+    def test_fecha_ilegible_cuenta_patentes_y_no_filas(self):
+        df = df_de([
+            fila(pat="AAAA11", nro_parte="1", fecha="no es fecha"),
+            fila(pat="AAAA11", nro_parte="2", fecha="tampoco"),
+            fila(pat="BBBB22", nro_parte="3", fecha="mal"),
+            fila(pat="BBBB22", nro_parte="4", fecha="05/09/2026"),
+        ])
+        _, _, avisos = construir_grupos(df, [], utm_multa_defecto=1)
+        # BBBB22 sí tiene una fecha legible: solo AAAA11 queda sin fecha
+        self.assertEqual(avisos["patentes_con_fecha_ilegible"], 1)
+
     def test_reg_raw_se_preserva_para_el_bloque_postal(self):
         df = df_de([fila(pat="AAAA11", reg="R-42")])
         grupos, _, _ = construir_grupos(df, [], utm_multa_defecto=1)

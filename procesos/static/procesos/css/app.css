@@ -988,7 +988,8 @@ input[type="file"]::file-selector-button:hover {
   display: none;
 }
 
-.tarjetas-tipo:has(input[value="SENTENCIA"]:checked) ~ .solo-sentencia {
+.tarjetas-tipo:has(input[value="SENTENCIA"]:checked) ~ .solo-sentencia,
+.es-sentencia .solo-sentencia {
   display: block;
 }
 
@@ -1781,7 +1782,8 @@ form.enviando .pasos {
   text-transform: uppercase;
 }
 
-.quitar {
+.quitar,
+.casilla {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1791,7 +1793,8 @@ form.enviando .pasos {
   font-weight: 400;
 }
 
-.quitar input {
+.quitar input,
+.casilla input {
   width: 18px;
   height: 18px;
   accent-color: var(--magenta);
@@ -2033,10 +2036,6 @@ form.enviando .pasos {
   .rejilla--sola .aud {
     border-top: 1px solid var(--linea);
   }
-}
-
-.procesando__cancelar {
-  margin-top: 16px;
 }
 
 
@@ -2384,4 +2383,17 @@ input[readonly] {
 
 .mensajes--retirado {
   display: none;
+}
+
+/* ── Generación en segundo plano ────────────────────────────────────── */
+.avance {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--magenta);
+}
+
+.archivo__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

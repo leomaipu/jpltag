@@ -77,3 +77,45 @@ class AislamientoEntreJuzgadosTest(TestCase):
         ingresar(client_admin, "admin_global")
         resp = client_admin.get(f"/resultado/{self.generacion_jpl2.pk}/")
         self.assertEqual(resp.status_code, 200)
+
+
+class PerfilSinJuzgadoTest(TestCase):
+    """Hallazgo A de la auditoría (27-oct-2026): un perfil que no es de
+    Administrador y quedó sin juzgado veía y operaba los 3."""
+
+    def setUp(self):
+        self.jpl1 = crear_juzgado(slug="jpl1", nombre="1er JPL de Maipú")
+        self.jpl2 = crear_juzgado(slug="jpl2", nombre="2do JPL de Maipú", dia_desde=11, dia_hasta=20)
+        crear_usuario("operador_sin_juzgado", rol=Rol.OPERADOR, juzgado=None)
+        ingresar(self.client, "operador_sin_juzgado")
+
+    def test_no_ve_ningun_juzgado(self):
+        resp = self.client.get("/")
+        self.assertContains(resp, "Sin juzgado asignado")
+        self.assertRedirects(self.client.get("/subir/"), "/")
+        self.assertNotContains(self.client.get("/agenda/"), "2do JPL de Maipú")
+
+    def test_no_puede_operar_sobre_un_juzgado_eligiendolo_en_la_url(self):
+        for url in ("/subir/?juzgado=jpl2", "/agenda/?juzgado=jpl2", "/plantilla/?juzgado=jpl2"):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
+        resp = self.client.post("/agenda/", {
+            "juzgado": "jpl2", "fecha": "2099-01-01", "hora": "09:00", "cupos_totales": 5,
+        })
+        self.assertEqual(resp.status_code, 403)
+
+    def test_tampoco_ve_resultados_ni_plantillas_de_otro_juzgado(self):
+        otro = crear_usuario("sec2", rol=Rol.SECRETARIO, juzgado=self.jpl2)
+        generacion = GeneracionCartas.objects.create(
+            juzgado=self.jpl2, usuario=otro, nombre_archivo_nomina="n.xlsx", carpeta_salida="jpl2/x",
+        )
+        self.assertEqual(self.client.get(f"/resultado/{generacion.pk}/").status_code, 403)
+        self.assertEqual(self.client.get(f"/plantilla/descargar/{self.jpl2.pk}/CITACION/").status_code, 403)
+
+    def test_el_admin_exige_juzgado_salvo_para_administrador(self):
+        from django.core.exceptions import ValidationError
+        from nucleo.models import PerfilUsuario
+        perfil = PerfilUsuario.objects.get(usuario__username="operador_sin_juzgado")
+        with self.assertRaises(ValidationError):
+            perfil.full_clean()
+        perfil.rol = Rol.ADMINISTRADOR
+        perfil.full_clean()

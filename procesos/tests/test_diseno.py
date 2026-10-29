@@ -187,7 +187,7 @@ class ComportamientosNuevosTest(TestCase):
         # SALIDAS_ROOT apunta a una carpeta temporal: en la imagen de
         # despliegue /app/salidas no es escribible durante las pruebas.
         with tempfile.TemporaryDirectory() as salidas, override_settings(SALIDAS_ROOT=salidas), \
-                self.assertLogs("procesos.views", level="ERROR"):
+                self.assertLogs("procesos.generacion", level="ERROR"):
             resp = self.client.post("/subir/", {
                 "juzgado": "jpl1", "tipo_carta": "CITACION", "nombre_firmante": "Ana",
                 "cargo_firma": "SECRETARIO", "n_cartas_paquete": "0",

@@ -55,26 +55,38 @@
     });
   });
 
-  // Generar cartas puede tardar minutos con una nómina grande: se muestra
-  // el estado de espera en vez de dejar una pantalla quieta.
+  // La fecha de sentencia se muestra solo con «Sentencia». El CSS lo hace con
+  // :has(); esta clase cubre los navegadores que no lo tienen (Firefox < 121).
+  function marcarSentencia(form) {
+    var elegido = form.querySelector('.tarjetas-tipo input:checked');
+    form.classList.toggle("es-sentencia", !!elegido && elegido.value === "SENTENCIA");
+  }
+  doc.querySelectorAll("form[data-procesa]").forEach(marcarSentencia);
+  doc.addEventListener("change", function (e) {
+    var form = e.target.closest("form[data-procesa]");
+    if (form && e.target.closest(".tarjetas-tipo")) { marcarSentencia(form); }
+  });
+
+  // Acciones que no se deshacen (cancelar una generación): piden confirmación.
+  doc.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (form.matches("[data-confirmar]") && !window.confirm(form.getAttribute("data-confirmar"))) {
+      e.preventDefault();
+    }
+  });
+
+  // Revisar la nómina toma unos segundos: se muestra el estado de espera en
+  // vez de dejar una pantalla quieta.
   doc.addEventListener("submit", function (e) {
     var form = e.target;
     if (!form.matches("[data-procesa]") || !form.checkValidity()) { return; }
     window.setTimeout(function () {
+      // Un segundo clic enviaría la misma nómina dos veces.
+      form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
       form.classList.add("enviando");
       var aviso = form.querySelector(".procesando");
       if (aviso) { aviso.focus(); window.scrollTo({ top: 0 }); }
     }, 0);
-  });
-
-  // "Dejar de esperar": corta la espera sin recargar. La generación puede
-  // haber seguido en el servidor, por eso el aviso pide revisar el Inicio.
-  doc.addEventListener("click", function (e) {
-    var b = e.target.closest("[data-cancelar]");
-    if (!b) { return; }
-    var form = b.closest("form");
-    if (window.stop) { window.stop(); }
-    if (form) { form.classList.remove("enviando"); }
   });
 
   // Mantenedor de bloques: botones − / + y vista en vivo de los cupos.

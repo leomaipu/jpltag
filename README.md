@@ -84,7 +84,7 @@ abogada.
 
 Cuántas infracciones caben en una hoja (`Juzgado.max_causas_por_pagina`,
 12 por defecto): se midió con las plantillas por defecto y la nómina real
-de octubre-2026 — caben 14 con firma + sello (la más alta) y 16 ya
+de febrero-2026 — caben 14 con firma + sello (la más alta) y 16 ya
 desborda; si una patente tiene más, la carta sale en varias partes
 completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
 firma. Con una plantilla propia más alta o más compacta, ajustar desde
@@ -140,9 +140,53 @@ Cada bloque es una audiencia con cupos; las citaciones toman cupos del primer bl
 - Solo se ofrecen y se editan bloques que **aún no empiezan** (hora de Chile). Los que ya pasaron quedan en el Historial, de solo lectura.
 - Un bloque **con cartas** (cupos ocupados) no cambia de fecha ni de hora, sus cupos no bajan de los ocupados y no se elimina. Para mover la audiencia: «Cerrar cupos» y crear un bloque nuevo (la pantalla ofrece el atajo).
 - «Corregir cupos ocupados» es la única forma de devolver cupos a mano: pide un motivo y queda en `BloqueAjuste` (quién, cuándo, de→a, por qué), visible en la pantalla del bloque.
-- La generación de cartas reserva los cupos bajo bloqueo de filas y en una sola transacción (`_reservar_agenda`): dos generaciones simultáneas no se reparten el mismo cupo y editar un bloque no deja cartas con datos viejos. La corrida queda anotada `EN_CURSO` con los cupos que tomó (`cupos_por_bloque`); si falla, los devuelve; si el proceso muere a mitad de camino, a los 10 minutos la pantalla del bloque ofrece «Devolver los cupos de esa generación».
+- La generación de cartas reserva los cupos bajo bloqueo de filas y en una sola transacción (`procesos.generacion.reservar_agenda`): dos generaciones simultáneas no se reparten el mismo cupo y editar un bloque no deja cartas con datos viejos. La corrida queda anotada `EN_CURSO` con los cupos que tomó (`cupos_por_bloque`); si falla, los devuelve; si el proceso muere a mitad de camino, a los 10 minutos la pantalla del bloque ofrece «Devolver los cupos de esa generación».
 - La base exige `cupos_usados <= cupos_totales` (restricción) y dos pestañas no se pisan: el formulario lleva una huella de fecha, hora y cupos.
 - En `/admin/` los cupos ocupados son de solo lectura y no se borran bloques con cartas.
+
+### Generación de cartas en segundo plano (`procesos/generacion.py`)
+
+La nómina del mes se sube **una sola vez**. La web la lee, agrupa y filtra,
+hace los controles, reserva la agenda y deja la corrida «En cola» (unos
+segundos). El worker (`python manage.py procesar_generaciones`, contenedor
+aparte, uno solo) arma los paquetes de cartas sin el límite de 180 s de una
+petición: una nómina completa son miles de cartas (medido el 29-oct-2026 con
+PostgreSQL y 1 CPU: 15.447 cartas en 25 minutos). La pantalla de resultado
+muestra «paquete N de M», se recarga sola y permite cancelar mientras está
+en cola. Si el worker se detiene, la corrida sigue después desde el último
+paquete terminado. Cada paquete se
+arma en un proceso hijo que termina al guardarlo: así la memoria no crece
+(medido el 29-oct-2026: sin esto, ~2,5 MB por carta quedaban tomados y el
+contenedor moría pasadas las 300 cartas).
+
+Controles al preparar:
+
+- **Tope por archivo:** hasta `JPLTAG_MAX_CARTAS_POR_ARCHIVO` cartas por
+  Word (50; «Cartas por paquete» parte ahí). Cada paquete se descarga como
+  `.docx` o comprimido en `.zip`.
+- **Patentes que ya recibieron carta** del mismo juzgado y período
+  (citación y «citación y sentencia» cuentan como la misma familia; la
+  sentencia va aparte): se pregunta si generar solo las que faltan o todas
+  de nuevo. La nómina queda guardada mientras tanto (12 h, solo para quien
+  la subió): no hay que volver a subirla. Cada corrida guarda sus patentes
+  (`GeneracionCartas.patentes`); las anteriores a este cambio no cuentan.
+- **«Citación y sentencia» sin cupo:** si la agenda no alcanza para todas
+  las patentes no se genera (condenaría por no concurrir a una audiencia
+  sin día). La «Citación» sola sigue saliendo «a coordinar».
+- **Paquetes que fallan:** sus cartas no quedan en el seguimiento, sus
+  cupos vuelven a la agenda y la pantalla de resultado lo muestra; el
+  detalle técnico va al registro del servidor.
+- **Días sin juzgado:** las patentes de un día que ningún juzgado activo
+  procesa van al log de errores (`FUERA_DE_TODO_RANGO`) y se avisan. Los
+  rangos de los juzgados activos no se pueden traslapar (`Juzgado.clean`).
+- **Firmante:** nombre y cargo son obligatorios y no se prellenan con el
+  usuario conectado.
+
+Lo rechazado antes de empezar no deja corrida ni archivos en disco; una
+nómina sin mes reconocible o sin patentes del rango queda como corrida
+«Falló», con el motivo. Sin worker (pruebas, `runserver`) la misma fase
+de generación corre dentro de la petición
+(`JPLTAG_GENERAR_EN_LA_PETICION`).
 
 ### UTM automático (Módulo 4)
 
@@ -159,7 +203,7 @@ servidor en DESPLIEGUE.md.
 
 ## Roles y permisos
 
-| Rol | Plantilla | Agenda | Generar cartas | Gestionar usuarios |
+| Rol | Plantilla | Agenda | Generar cartas | Gestionar usuarios (en `/admin/`) |
 |---|---|---|---|---|
 | Operador | Editar | Editar | Sí | No |
 | Secretario(a) | Editar | Editar | Sí | No |
@@ -168,7 +212,10 @@ servidor en DESPLIEGUE.md.
 
 Definidos en `nucleo/models.py` (`PERMISOS_POR_ROL`), confirmados con el
 Juzgado el 10-oct-2026. Un Administrador sin juzgado asignado ve los 3;
-el resto, solo el suyo.
+el resto, solo el suyo, y un perfil de otro rol sin juzgado no ve ninguno
+(`/admin/` no deja guardarlo así). Los usuarios y perfiles se crean en
+`/admin/`, que solo abre a superusuarios (`config/urls.py`): ahí no hay
+aislamiento por juzgado. No hay pantalla propia de usuarios.
 
 ## Desarrollo local
 
@@ -180,7 +227,7 @@ Dos formas, a elegir:
 docker compose up --build
 ```
 
-Levanta jpltag junto a un Postgres y un Valkey propios, en
+Levanta jpltag (web y worker) junto a un Postgres y un Valkey propios, en
 `http://localhost:8000`. Es solo para desarrollo — en producción se usa
 el `compose.yaml` que genera el script de despliegue del servidor, no
 este archivo (ver DESPLIEGUE.md).
@@ -194,6 +241,9 @@ pip install --require-hashes -r requirements.txt
 python manage.py migrate        # usa SQLite si no hay DATABASE_URL (ver abajo)
 python manage.py createsuperuser
 python manage.py runserver
+# y en otra terminal, el worker que arma las cartas:
+python manage.py procesar_generaciones
+# (o, sin worker: JPLTAG_GENERAR_EN_LA_PETICION=True python manage.py runserver)
 ```
 
 Sin un `.env`, `config/settings.py` cae a SQLite y a una caché en

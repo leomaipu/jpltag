@@ -1,4 +1,6 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -29,9 +31,16 @@ class Juzgado(models.Model):
     )
     direccion = models.CharField(max_length=200, blank=True)
 
-    # Rango de días del mes que procesa este juzgado (hoy: DIA_DESDE/DIA_HASTA)
-    dia_desde = models.PositiveSmallIntegerField(default=1)
-    dia_hasta = models.PositiveSmallIntegerField(default=10)
+    # Rango de días del mes que procesa este juzgado (hoy: DIA_DESDE/DIA_HASTA).
+    # Los rangos de los juzgados activos no se pueden traslapar (ver clean()):
+    # una misma patente recibiría dos cartas.
+    dia_desde = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
+    dia_hasta = models.PositiveSmallIntegerField(
+        default=10, validators=[MinValueValidator(1), MaxValueValidator(31)],
+        help_text="Último día del mes que procesa (31 para el último tramo: así no se pierde el día 31).",
+    )
 
     # UTM vigente configurada (Módulo 4 de la propuesta) — se puede dejar
     # fija acá (/admin/) o consultarla con un clic desde /plantilla/, que
@@ -46,12 +55,12 @@ class Juzgado(models.Model):
 
     # Cuántas infracciones caben en UNA página de carta sin que la firma y el
     # texto final salten a una segunda hoja. Medido con las plantillas por
-    # defecto y la nómina real de octubre-2026 (disposiciones/lugares de
+    # defecto y la nómina real de febrero-2026 (disposiciones/lugares de
     # hasta 2 líneas, firma + sello del 2do JPL = la más alta): 14 caben,
     # 16 no. Se deja 12 por holgura. Si un Juzgado sube una plantilla más
     # compacta (o más alta), se ajusta desde /admin/.
     max_causas_por_pagina = models.PositiveSmallIntegerField(
-        default=12,
+        default=12, validators=[MinValueValidator(1)],
         help_text="Infracciones por página de carta; si una patente tiene más, la carta sale en varias partes.",
     )
 
@@ -90,6 +99,22 @@ class Juzgado(models.Model):
 
     def __str__(self):
         return self.nombre
+
+    def clean(self):
+        super().clean()
+        if self.dia_desde and self.dia_hasta and self.dia_desde > self.dia_hasta:
+            raise ValidationError({"dia_hasta": "El último día no puede ser anterior al primero."})
+        if self.activo and self.dia_desde and self.dia_hasta:
+            traslapados = (
+                Juzgado.objects.filter(activo=True, dia_desde__lte=self.dia_hasta, dia_hasta__gte=self.dia_desde)
+                .exclude(pk=self.pk)
+            )
+            if traslapados.exists():
+                nombres = ", ".join(f"{j.slug} ({j.dia_desde}–{j.dia_hasta})" for j in traslapados)
+                raise ValidationError(
+                    f"Los días {self.dia_desde}–{self.dia_hasta} se cruzan con {nombres}: "
+                    "una misma patente recibiría carta de dos juzgados."
+                )
 
     CAMPO_PLANTILLA = {
         TipoCarta.CITACION: "plantilla_citacion",
@@ -217,7 +242,8 @@ PERMISOS_POR_ROL = {
 class PerfilUsuario(models.Model):
     """Extiende el usuario de Django con su rol y su juzgado (Módulo 5 —
     Gestión de usuarios y roles). Un Administrador sin juzgado asignado
-    (juzgado=None) tiene acceso a los 3."""
+    (juzgado=None) tiene acceso a los 3; cualquier otro rol sin juzgado no
+    tiene acceso a ninguno (ver juzgados_visibles())."""
 
     usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfil")
     juzgado = models.ForeignKey(
@@ -231,8 +257,29 @@ class PerfilUsuario(models.Model):
         verbose_name_plural = "Perfiles de usuario"
 
     def __str__(self):
-        juzgado = self.juzgado.slug if self.juzgado else "todos"
+        if self.juzgado:
+            juzgado = self.juzgado.slug
+        else:
+            juzgado = "todos" if self.es_administrador_general else "sin juzgado"
         return f"{self.usuario.get_username()} · {self.get_rol_display()} · {juzgado}"
+
+    def clean(self):
+        super().clean()
+        if self.rol != Rol.ADMINISTRADOR and not self.juzgado_id:
+            raise ValidationError({"juzgado": "Solo un Administrador puede quedar sin juzgado asignado."})
+
+    @property
+    def es_administrador_general(self):
+        return self.rol == Rol.ADMINISTRADOR and self.juzgado_id is None
+
+    def juzgados_visibles(self):
+        """Los juzgados con los que puede trabajar. Un perfil mal cargado
+        (rol distinto de Administrador y sin juzgado) no ve ninguno."""
+        if self.juzgado_id:
+            return Juzgado.objects.filter(pk=self.juzgado_id)
+        if self.es_administrador_general:
+            return Juzgado.objects.filter(activo=True)
+        return Juzgado.objects.none()
 
     @property
     def permisos(self):
@@ -252,6 +299,6 @@ class PerfilUsuario(models.Model):
 
     def tiene_acceso_a(self, juzgado: Juzgado) -> bool:
         """Administrador sin juzgado asignado ve los 3; el resto, solo el suyo."""
-        if self.rol == Rol.ADMINISTRADOR and self.juzgado_id is None:
+        if self.es_administrador_general:
             return True
         return self.juzgado_id == juzgado.id

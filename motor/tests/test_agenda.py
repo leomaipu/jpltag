@@ -51,6 +51,22 @@ class TestAsignarAgenda(unittest.TestCase):
         self.assertEqual(slots["BBBB22"], ("día 1", "09:00"))
         self.assertEqual(slots["AAAA11"], ("día 1", "09:15"))
 
+    def test_con_n_de_parte_reales_el_orden_es_el_del_excel(self):
+        """Los N° de parte de la nómina real traen letras (1255846-M78): no
+        se pueden ordenar como número y quedan en el orden del Excel, igual
+        que en los scripts originales."""
+        grupos = {
+            "CCCC33": grupo(["1255899-M78"]),
+            "AAAA11": grupo(["1255846-M78"]),
+            "BBBB22": grupo(["1255850-M78"]),
+        }
+        agenda = [("día 1", "09:00"), ("día 1", "09:15"), ("día 2", "09:00")]
+        slots, _ = asignar_agenda(grupos, agenda)
+        self.assertEqual(
+            [slots[p] for p in ("CCCC33", "AAAA11", "BBBB22")],
+            agenda,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

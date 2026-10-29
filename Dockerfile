@@ -23,7 +23,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HOME=/tmp \
-    DJANGO_SETTINGS_MODULE=config.settings
+    DJANGO_SETTINGS_MODULE=config.settings \
+    GUNICORN_CMD_ARGS="--timeout 180"
+
+# GUNICORN_CMD_ARGS: sin él gunicorn corta cada petición a los 30 s, y una
+# generación de cartas dentro de los topes de config/settings.py
+# (JPLTAG_MAX_CARTAS_POR_CORRIDA) puede tardar hasta ~3 min. El compose
+# del servidor (13-app-jpltag.sh) fija el mismo valor; HAProxy corta a los
+# 190 s, así que no conviene subirlo solo acá.
 
 WORKDIR /app
 

@@ -19,7 +19,6 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
     se excluye por completo.
     """
     grupos = {}
-    errores_fecha = []
     errores_patente = []
     causas_vacias = 0
     avisos_no_encontrados = set()
@@ -72,8 +71,6 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 grupos[pat]["anio"] = anio
                 grupos[pat]["mes"] = mes
                 grupos[pat]["dia"] = dia
-            else:
-                errores_fecha.append((idx + 2, pat, fecha_row))
 
     patentes_sin_causas = {pat: g for pat, g in grupos.items() if not g["causas"]}
     for pat in patentes_sin_causas:
@@ -83,7 +80,8 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
         "filas_sin_patente": len(errores_patente),
         "causas_vacias": causas_vacias,
         "patentes_sin_causas_validas": len(patentes_sin_causas),
-        "patentes_con_fecha_ilegible": len(errores_fecha),
+        # Patentes (no filas) sin ninguna fecha legible: no se pueden asignar a un juzgado.
+        "patentes_con_fecha_ilegible": sum(1 for g in grupos.values() if "mes" not in g),
         "disposiciones_sin_multa_definida": sorted(avisos_no_encontrados),
     }
     return grupos, patentes_sin_causas, avisos

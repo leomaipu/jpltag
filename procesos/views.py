@@ -1,20 +1,14 @@
 """
-Vistas web: ingresar, panel, subir nómina (dispara el motor completo),
-ver resultado, descargar archivo, y agenda de audiencias.
+Vistas web: ingresar, panel, subir nómina, ver resultado, descargar
+archivo, agenda de audiencias y plantilla del juzgado.
 
-`_procesar_nomina` es el equivalente del `procesar()` de los scripts
-originales — la misma secuencia (leer → duplicados → multas → agrupar →
-mes predominante → filtrar por rango de días → agenda → generar cartas),
-pero disparada desde un formulario web en vez de la terminal, y dejando
-registro en GeneracionCartas/ArchivoGenerado en vez de solo imprimir en
-pantalla.
+La generación de cartas en sí (lo que en los scripts originales era
+`procesar()`) vive en procesos/generacion.py: aquí solo se recibe el
+formulario y se muestra el resultado.
 """
 
 import logging
 import re
-import zipfile
-from collections import Counter
-from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
@@ -22,25 +16,18 @@ from django.contrib import messages
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import F
-from django.db.models.functions import Greatest
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.views import View
 
-from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
-from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
 from motor.cartas import fmt_pesos
 from motor.fechas_en_letras import MESES
-from motor.lectura import detectar_duplicados, leer_nomina
-from motor.multas import cargar_tabla_multas
-from motor.plantilla import generar_cartas_certificadas, ruta_plantilla_defecto
-from motor.reportes import escribir_log_errores, exportar_duplicados
+from motor.plantilla import ruta_plantilla_defecto
 from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
 from nucleo.models import BloqueAjuste, BloqueHorario, Juzgado, TipoCarta, ahora_local
 
+from . import generacion
 from .forms import CUPOS_MAXIMOS, BloqueEditarForm, BloqueHorarioForm, BloqueSerieForm, IngresarForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
 from .permisos import (
@@ -59,27 +46,8 @@ logger = logging.getLogger(__name__)
 # elige con cuál trabajar vía ?juzgado=<slug>)
 # ══════════════════════════════════════════════════════════════════════
 
-def _mensaje_para_personas(exc):
-    """Los errores de pandas/openpyxl vienen en inglés y hablan de motores
-    y zips; a quien sube la nómina le sirve saber qué hacer. El detalle
-    técnico queda en el log del servidor."""
-    texto = str(exc)
-    marcas_de_archivo_invalido = (
-        "Excel file format cannot be determined", "File is not a zip file",
-        "BadZipFile", "not a zip file", "Unsupported format", "corrupt",
-    )
-    if isinstance(exc, zipfile.BadZipFile) or any(m in texto for m in marcas_de_archivo_invalido):
-        return (
-            "El archivo no es un Excel (.xlsx) válido. Ábrelo en Excel, guárdalo como "
-            "«Libro de Excel (.xlsx)» y súbelo otra vez."
-        )
-    return texto
-
-
 def _juzgados_visibles(perfil):
-    if perfil.juzgado_id:
-        return Juzgado.objects.filter(pk=perfil.juzgado_id)
-    return Juzgado.objects.filter(activo=True)
+    return perfil.juzgados_visibles()
 
 
 def _juzgado_actual(request, perfil):
@@ -133,331 +101,144 @@ class PanelView(PerfilRequeridoMixin, View):
 # ══════════════════════════════════════════════════════════════════════
 
 class SubirNominaView(PuedeGenerarCartasMixin, View):
+    def _pantalla(self, request, perfil, juzgado, form, *, repetido=None):
+        return render(request, "procesos/subir_nomina.html", {
+            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
+            "repetido": repetido,
+        })
+
     def get(self, request):
         perfil = request.user.perfil
         juzgado = _juzgado_actual(request, perfil)
         if juzgado is None:
-            messages.error(request, "No hay ningún juzgado configurado todavía.")
+            messages.error(request, "No tienes ningún juzgado asignado o no hay ninguno configurado todavía.")
             return redirect("procesos:panel")
-        form = SubirNominaForm(initial={"nombre_firmante": request.user.get_full_name()})
-        return render(request, "procesos/subir_nomina.html", {
-            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
-        })
+        return self._pantalla(request, perfil, juzgado, SubirNominaForm())
 
     def post(self, request):
         perfil = request.user.perfil
         juzgado = _juzgado_actual(request, perfil)
         if juzgado is None:
-            messages.error(request, "No hay ningún juzgado configurado todavía.")
+            messages.error(request, "No tienes ningún juzgado asignado o no hay ninguno configurado todavía.")
             return redirect("procesos:panel")
 
         form = SubirNominaForm(request.POST, request.FILES)
         if not form.is_valid():
-            return render(request, "procesos/subir_nomina.html", {
-                "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
-            })
+            return self._pantalla(request, perfil, juzgado, form)
 
         datos = form.cleaned_data
-        generacion = _procesar_nomina(
-            juzgado=juzgado,
-            usuario=request.user,
-            archivo_nomina=datos["nomina"],
-            archivo_tipo_causas=datos.get("tipo_causas"),
+        solicitud = generacion.SolicitudGeneracion(
             tipo_carta=datos["tipo_carta"],
             fecha_sentencia=datos.get("fecha_audiencia"),
-            nombre_firmante=datos.get("nombre_firmante") or "",
-            cargo_firma=datos.get("cargo_firma") or "SECRETARIO",
+            nombre_firmante=datos["nombre_firmante"],
+            cargo_firma=datos["cargo_firma"],
             n_cartas_paquete=datos.get("n_cartas_paquete") or 0,
+            repetidas=datos.get("repetidas") or "",
         )
-        return redirect("procesos:resultado", pk=generacion.pk)
-
-
-def _registrar_fallo(juzgado, usuario, nombre_archivo, carpeta_rel, mensaje):
-    return GeneracionCartas.objects.create(
-        juzgado=juzgado, usuario=usuario,
-        nombre_archivo_nomina=nombre_archivo,
-        carpeta_salida=carpeta_rel,
-        estado=GeneracionCartas.Estado.FALLIDO,
-        mensaje_error=mensaje,
-    )
-
-
-def _pool_de_agenda(juzgado, *, bloquear=False):
-    """Arma la lista de slots disponibles (fecha dd/mm/aaaa, hora) a partir
-    de los BloqueHorario vigentes de `juzgado` (de hoy en adelante; los de
-    hoy, solo si su hora no pasó), repitiendo cada slot tantas veces como
-    cupos_disponibles tenga su bloque (un bloque es una audiencia grupal:
-    varias patentes pueden compartir la misma fecha y hora). Devuelve
-    (pool_de_slots, bloque_por_slot) — lo segundo permite luego descontar los
-    cupos realmente usados en esta corrida.
-
-    Con `bloquear=True` (dentro de una transacción) las filas quedan
-    bloqueadas hasta que ella termine: nadie las edita ni las toma otra
-    corrida mientras se reparten."""
-    consulta = juzgado.bloques_horario.vigentes().order_by("fecha", "hora")
-    if bloquear:
-        consulta = consulta.select_for_update(of=("self",))
-    bloque_por_slot = {}
-    pool = []
-    for b in consulta:
-        slot = (b.fecha.strftime("%d/%m/%Y"), b.hora.strftime("%H:%M"))
-        bloque_por_slot[slot] = b
-        pool.extend([slot] * b.cupos_disponibles)
-    return pool, bloque_por_slot
-
-
-class CuposInsuficientes(Exception):
-    """Un bloque cambió entre repartir los cupos y descontarlos."""
-
-
-def _descontar_cupos_usados(slots, bloque_por_slot):
-    """Después de asignar_agenda(), suma a cupos_usados de cada BloqueHorario
-    las patentes que se le asignaron en esta corrida (para que la próxima no
-    vuelva a ofrecerlos). Devuelve {id del bloque: cantidad}.
-
-    Es estricto: si el bloque ya no tiene lugar (o cambió de fecha u hora),
-    falla en vez de recortar en silencio, que escondería una sobreventa."""
-    asignados = [slot for slot in slots.values() if slot != SLOT_SIN_AGENDA]
-    tomados = {}
-    for slot, cantidad in Counter(asignados).items():
-        bloque = bloque_por_slot.get(slot)
-        if bloque is None:
-            continue
-        # En la base y con F(): quien edita el bloque mientras corre la
-        # generación no se pisa con un valor leído antes.
-        filas = BloqueHorario.objects.filter(
-            pk=bloque.pk, fecha=bloque.fecha, hora=bloque.hora,
-            cupos_totales__gte=F("cupos_usados") + cantidad,
-        ).update(cupos_usados=F("cupos_usados") + cantidad)
-        if filas != 1:
-            raise CuposInsuficientes(
-                f"El bloque del {slot[0]} {slot[1]} cambió mientras se repartían los horarios."
-            )
-        tomados[bloque.pk] = cantidad
-    return tomados
-
-
-def _reservar_agenda(juzgado, incluidos, crear_corrida=None):
-    """Reparte los horarios entre las patentes y descuenta los cupos, todo
-    bajo el bloqueo de las filas: dos generaciones simultáneas no pueden
-    repartirse el mismo cupo, y editar un bloque espera a que esto termine.
-
-    `crear_corrida(tomados)`, si se pasa, anota la corrida EN_CURSO en la
-    misma transacción: nunca hay cupos tomados sin una corrida que los
-    explique, ni siquiera si el proceso muere después.
-    Devuelve (slots, sin_cupo, {id del bloque: cupos tomados}, corrida)."""
-    with transaction.atomic():
-        pool, bloque_por_slot = _pool_de_agenda(juzgado, bloquear=True)
-        slots, sin_cupo = asignar_agenda(incluidos, pool)
-        tomados = _descontar_cupos_usados(slots, bloque_por_slot)
-        corrida = crear_corrida(tomados, len(sin_cupo)) if crear_corrida else None
-    return slots, sin_cupo, tomados, corrida
-
-
-def _devolver_cupos(tomados):
-    """Deshace una reserva cuando la generación falló: ninguna carta salió."""
-    for pk, cantidad in tomados.items():
-        BloqueHorario.objects.filter(pk=pk).update(
-            cupos_usados=Greatest(F("cupos_usados") - cantidad, 0),
-        )
-
-
-def _procesar_nomina(*, juzgado, usuario, archivo_nomina, archivo_tipo_causas,
-                      nombre_firmante, cargo_firma, n_cartas_paquete,
-                      tipo_carta=TipoCarta.CITACION, fecha_sentencia=None):
-    import uuid
-
-    carpeta_rel = f"{juzgado.slug}/{uuid.uuid4().hex}"
-    carpeta_abs = Path(settings.SALIDAS_ROOT) / carpeta_rel
-    carpeta_abs.mkdir(parents=True, exist_ok=True)
-
-    ruta_nomina = carpeta_abs / "nomina_original.xlsx"
-    with open(ruta_nomina, "wb") as f:
-        for chunk in archivo_nomina.chunks():
-            f.write(chunk)
-
-    ruta_tipo_causas = None
-    if archivo_tipo_causas:
-        ruta_tipo_causas = carpeta_abs / "tipo_causas.xlsx"
-        with open(ruta_tipo_causas, "wb") as f:
-            for chunk in archivo_tipo_causas.chunks():
-                f.write(chunk)
-
-    cupos_tomados = {}   # lo que esta corrida le quitó a la agenda
-    corrida = None       # la GeneracionCartas EN_CURSO, si se reservaron cupos
-    try:
-        df = leer_nomina(ruta_nomina)
-        df_limpio, df_duplicados = detectar_duplicados(df)
-        tabla_multas = cargar_tabla_multas(ruta_tipo_causas) if ruta_tipo_causas else []
-
-        grupos, sin_causas, avisos = construir_grupos(df_limpio, tabla_multas, utm_multa_defecto=1)
-        anio_pred, mes_pred = detectar_mes_predominante(grupos)
-
-        if not mes_pred:
-            return _registrar_fallo(
-                juzgado, usuario, archivo_nomina.name, carpeta_rel,
-                "No se pudo determinar el mes de la nómina: ninguna fila trae una "
-                "fecha de infracción reconocible.",
-            )
-
-        incluidos, sin_fecha, otro_mes, otro_rango = filtrar_por_rango_dias(
-            grupos, anio_pred, mes_pred, juzgado.dia_desde, juzgado.dia_hasta)
-
-        if not incluidos:
-            return _registrar_fallo(
-                juzgado, usuario, archivo_nomina.name, carpeta_rel,
-                f"No hay ninguna patente con infracciones en los días "
-                f"{juzgado.dia_desde}-{juzgado.dia_hasta} del mes predominante "
-                f"({MESES[mes_pred - 1]} {anio_pred}) de esta nómina.",
-            )
-
-        if tipo_carta == TipoCarta.SENTENCIA:
-            # La sentencia ya está dictada: no se cita a ninguna audiencia,
-            # así que no se asigna agenda ni se gastan cupos.
-            slots, sin_cupo = {}, []
+        if datos.get("nomina"):
+            solicitud.archivo_nomina = datos["nomina"]
+            solicitud.nombre_nomina = datos["nomina"].name
+            solicitud.archivo_tipo_causas = datos.get("tipo_causas")
         else:
-            def _anotar_corrida(tomados, n_sin_cupo):
-                return GeneracionCartas.objects.create(
-                    juzgado=juzgado, usuario=usuario,
-                    nombre_archivo_nomina=archivo_nomina.name,
-                    tipo_carta=tipo_carta, fecha_sentencia=fecha_sentencia,
-                    anio_periodo=anio_pred, mes_periodo=mes_pred,
-                    total_patentes=len(incluidos), total_sin_cupo_agenda=n_sin_cupo,
-                    carpeta_salida=carpeta_rel,
-                    cupos_por_bloque={str(pk): n for pk, n in tomados.items()},
-                    estado=GeneracionCartas.Estado.EN_CURSO,
-                )
+            guardada = generacion.leer_nomina_guardada(datos["nomina_guardada"], juzgado, request.user)
+            if guardada is None:
+                form.add_error("nomina", "La nómina guardada ya no está disponible: vuelve a elegir el Excel.")
+                return self._pantalla(request, perfil, juzgado, form)
+            solicitud.nomina_guardada, solicitud.nombre_nomina = guardada
 
-            slots, sin_cupo, cupos_tomados, corrida = _reservar_agenda(juzgado, incluidos, _anotar_corrida)
-
-        config = {
-            "tipo_carta": str(tipo_carta),
-            "fecha_audiencia": fecha_sentencia.strftime("%d/%m/%Y") if fecha_sentencia else "",
-            "slug_juzgado": juzgado.slug,
-            "nombre_juzgado": juzgado.nombre,
-            "utm_valor": juzgado.utm_valor,
-            "direccion_juzgado": juzgado.direccion,
-            "max_causas_por_pagina": juzgado.max_causas_por_pagina,
-            "nombre_firmante": nombre_firmante,
-            "cargo_firma": cargo_firma,
-            "logo_path": juzgado.logo.path if juzgado.logo else None,
-            "sello_path": juzgado.sello_judicial.path if juzgado.sello_judicial else None,
-            "firma_path": juzgado.firma.path if juzgado.firma else None,
-            "plantillas_word": {
-                tipo: juzgado.plantilla_propia(tipo).path
-                for tipo in TipoCarta.values if juzgado.plantilla_propia(tipo)
-            },
-        }
-
-        carpeta_cartas = carpeta_abs / "cartas"
-        resultado = generar_cartas_certificadas(
-            incluidos, juzgado.slug, slots, n_cartas_paquete, config,
-            carpeta_salida=str(carpeta_cartas),
-        )
-
-        base_reporte = str(carpeta_abs / "reporte")
-        ruta_dup = exportar_duplicados(base_reporte, df_duplicados)
-        ruta_log = escribir_log_errores(base_reporte, sin_fecha, otro_mes, sin_causas, sin_cupo, grupos)
-
-        avisos_completos = dict(avisos)
-        avisos_completos.update({
-            "duplicados_excluidos": len(df_duplicados),
-            "otro_rango_de_dias": len(otro_rango),
-            "sin_cupo_agenda": len(sin_cupo),
-        })
-        if resultado["errores"]:
-            avisos_completos["errores_generando_lotes"] = resultado["errores"]
-
-        estado = (
-            GeneracionCartas.Estado.OK if not resultado["errores"]
-            else GeneracionCartas.Estado.CON_ERRORES
-        )
-
-        campos = dict(
-            juzgado=juzgado, usuario=usuario,
-            nombre_archivo_nomina=archivo_nomina.name,
-            tipo_carta=tipo_carta, fecha_sentencia=fecha_sentencia,
-            anio_periodo=anio_pred, mes_periodo=mes_pred,
-            total_patentes=len(incluidos),
-            total_duplicados=len(df_duplicados),
-            total_sin_causas_validas=len(sin_causas),
-            total_sin_cupo_agenda=len(sin_cupo),
-            carpeta_salida=carpeta_rel,
-            avisos=avisos_completos,
-            cupos_por_bloque={str(pk): n for pk, n in cupos_tomados.items()},
-            estado=estado,
-        )
-        if corrida is not None:
-            for nombre, valor in campos.items():
-                setattr(corrida, nombre, valor)
-            corrida.save()
-            generacion = corrida
-        else:
-            generacion = GeneracionCartas.objects.create(**campos)
-
-        def _registrar_archivo(ruta, tipo):
-            if not ruta:
-                return
-            ArchivoGenerado.objects.create(
-                generacion=generacion, tipo=tipo,
-                ruta=str(Path(ruta).relative_to(settings.SALIDAS_ROOT)),
-                nombre_descarga=Path(ruta).name,
-            )
-
-        for ruta in resultado["archivos"]:
-            _registrar_archivo(ruta, ArchivoGenerado.Tipo.CARTAS)
-        _registrar_archivo(resultado["seguimiento"], ArchivoGenerado.Tipo.SEGUIMIENTO)
-        _registrar_archivo(ruta_dup, ArchivoGenerado.Tipo.DUPLICADOS)
-        _registrar_archivo(ruta_log, ArchivoGenerado.Tipo.LOG_ERRORES)
-
-        return generacion
-
-    except Exception as exc:
-        logger.exception("Falló la generación de cartas (%s)", juzgado.slug)
-        # Si no salió ninguna carta, los cupos reservados vuelven a la agenda.
-        _devolver_cupos(cupos_tomados)
-        if corrida is not None:
-            corrida.estado = GeneracionCartas.Estado.FALLIDO
-            corrida.mensaje_error = _mensaje_para_personas(exc)
-            corrida.cupos_por_bloque = {}
-            corrida.save(update_fields=["estado", "mensaje_error", "cupos_por_bloque"])
-            return corrida
-        return _registrar_fallo(
-            juzgado, usuario, archivo_nomina.name, carpeta_rel, _mensaje_para_personas(exc),
-        )
+        try:
+            corrida = generacion.preparar(juzgado, request.user, solicitud)
+        except generacion.GeneracionRechazada as exc:
+            if not exc.token:
+                form.add_error(None, str(exc))
+                return self._pantalla(request, perfil, juzgado, form)
+            # La nómina quedó guardada: se pregunta (o se pide corregir) sin volver a subirla.
+            repetido = isinstance(exc, generacion.EnvioRepetido)
+            form = SubirNominaForm(initial={
+                **datos, "nomina_guardada": exc.token, "repetidas": None if repetido else datos.get("repetidas"),
+            })
+            return self._pantalla(request, perfil, juzgado, form, repetido={
+                "mensaje": str(exc), "nombre_nomina": solicitud.nombre_nomina, "es_pregunta": repetido,
+                "faltan": exc.n_total - exc.n_repetidas if repetido else None,
+            })
+        return redirect("procesos:resultado", pk=corrida.pk)
 
 
 # ══════════════════════════════════════════════════════════════════════
 # Resultado y descarga
 # ══════════════════════════════════════════════════════════════════════
 
+def _archivo_del_usuario(request, pk):
+    archivo = get_object_or_404(ArchivoGenerado.objects.select_related("generacion__juzgado"), pk=pk)
+    if not request.user.perfil.tiene_acceso_a(archivo.generacion.juzgado):
+        raise PermissionDenied("No tienes acceso a este juzgado.")
+    ruta_abs = Path(settings.SALIDAS_ROOT) / archivo.ruta
+    if not ruta_abs.is_file():
+        raise Http404("El archivo ya no está disponible.")
+    return archivo, ruta_abs
+
+
 class ResultadoView(PuedeGenerarCartasMixin, View):
+    # Mientras está en cola o en curso, la pantalla se recarga sola.
+    RECARGAR_CADA = 10  # s
+
     def get(self, request, pk):
         perfil = request.user.perfil
-        generacion = get_object_or_404(
-            GeneracionCartas.objects.select_related("juzgado", "usuario"), pk=pk,
-        )
-        if not perfil.tiene_acceso_a(generacion.juzgado):
+        corrida = get_object_or_404(GeneracionCartas.objects.select_related("juzgado", "usuario"), pk=pk)
+        if not perfil.tiene_acceso_a(corrida.juzgado):
             raise PermissionDenied("No tienes acceso a este juzgado.")
-        archivos = generacion.archivos.all()
-        mes_nombre = MESES[generacion.mes_periodo - 1] if generacion.mes_periodo else None
+        activa = corrida.estado in generacion.ESTADOS_ACTIVOS
         return render(request, "procesos/resultado.html", {
-            "generacion": generacion, "archivos": archivos, "mes_nombre": mes_nombre,
+            "generacion": corrida,
+            "archivos": corrida.archivos.all(),
+            "mes_nombre": MESES[corrida.mes_periodo - 1] if corrida.mes_periodo else None,
+            "recargar_cada": self.RECARGAR_CADA if activa else None,
+            "antes_en_la_cola": generacion.corridas_antes_en_la_cola(corrida),
+            "interrumpida": generacion.corrida_interrumpida(corrida),
         })
+
+
+class CancelarGeneracionView(PuedeGenerarCartasMixin, View):
+    """Saca de la cola una generación que no ha empezado (o cuyo worker dejó
+    de responder) y devuelve sus cupos a la agenda."""
+
+    def post(self, request, pk):
+        corrida = get_object_or_404(GeneracionCartas.objects.select_related("juzgado"), pk=pk)
+        if not request.user.perfil.tiene_acceso_a(corrida.juzgado):
+            raise PermissionDenied("No tienes acceso a este juzgado.")
+        cancelada = generacion.cancelar(
+            corrida.pk, corrida.juzgado, f"Cancelada por {request.user.get_username()}; sus cupos volvieron a la agenda.",
+        )
+        if cancelada is None:
+            messages.error(request, "Esa generación ya no se puede cancelar: terminó o se está generando.")
+        else:
+            messages.success(request, f"Generación cancelada. Volvieron {cancelada.cupos_devueltos} cupos a la agenda.")
+        return redirect("procesos:resultado", pk=corrida.pk)
 
 
 class DescargarArchivoView(PuedeGenerarCartasMixin, View):
     def get(self, request, pk):
-        perfil = request.user.perfil
-        archivo = get_object_or_404(
-            ArchivoGenerado.objects.select_related("generacion__juzgado"), pk=pk,
-        )
-        if not perfil.tiene_acceso_a(archivo.generacion.juzgado):
-            raise PermissionDenied("No tienes acceso a este juzgado.")
-        ruta_abs = Path(settings.SALIDAS_ROOT) / archivo.ruta
-        if not ruta_abs.exists():
-            raise Http404("El archivo ya no está disponible.")
+        archivo, ruta_abs = _archivo_del_usuario(request, pk)
         return FileResponse(open(ruta_abs, "rb"), as_attachment=True, filename=archivo.nombre_descarga)
+
+
+class DescargarZipView(PuedeGenerarCartasMixin, View):
+    """Un paquete de cartas comprimido en .zip: se arma al pedirlo, en el
+    directorio temporal (TMPDIR), y no queda guardado."""
+
+    def get(self, request, pk):
+        import tempfile
+        import zipfile
+
+        archivo, ruta_abs = _archivo_del_usuario(request, pk)
+        comprimido = tempfile.TemporaryFile()
+        with zipfile.ZipFile(comprimido, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(ruta_abs, arcname=archivo.nombre_descarga)
+        comprimido.seek(0)
+        return FileResponse(
+            comprimido, as_attachment=True, filename=f"{Path(archivo.nombre_descarga).stem}.zip",
+            content_type="application/zip",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -612,18 +393,6 @@ def _volver_a_la_agenda(bloque):
     return f"{reverse('procesos:agenda')}?juzgado={bloque.juzgado.slug}#bloque-{bloque.pk}"
 
 
-CORRIDA_INTERRUMPIDA_TRAS = timedelta(minutes=10)
-
-
-def _corrida_interrumpida(corrida):
-    """Una generación que sigue «en curso» mucho después de lo que tarda
-    (el proceso murió: tiempo agotado, falta de memoria, reinicio)."""
-    return (
-        corrida.estado == GeneracionCartas.Estado.EN_CURSO
-        and corrida.creado < timezone.now() - CORRIDA_INTERRUMPIDA_TRAS
-    )
-
-
 def _historia_del_bloque(bloque):
     """Qué corridas de cartas tomaron cupos de este bloque y qué correcciones
     manuales tuvo: de dónde sale cada número de «cupos ocupados»."""
@@ -634,7 +403,7 @@ def _historia_del_bloque(bloque):
     )
     for c in corridas:
         c.cupos_en_este_bloque = c.cupos_por_bloque.get(str(bloque.pk), 0)
-        c.interrumpida = _corrida_interrumpida(c)
+        c.interrumpida = generacion.corrida_interrumpida(c)
     # La suma sale de todas las corridas, no solo de las 20 que se muestran.
     registrados = sum(
         c.cupos_por_bloque.get(str(bloque.pk), 0)
@@ -674,26 +443,17 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
             pk = int(request.POST.get("corrida", ""))
         except ValueError:
             pk = None
-        corrida = (
-            GeneracionCartas.objects.select_for_update()
-            .filter(pk=pk, juzgado=bloque.juzgado, estado=GeneracionCartas.Estado.EN_CURSO).first()
+        corrida = GeneracionCartas.objects.filter(pk=pk, estado=GeneracionCartas.Estado.EN_CURSO).first()
+        cancelada = corrida and generacion.corrida_interrumpida(corrida) and generacion.cancelar(
+            pk, bloque.juzgado,
+            f"Se interrumpió antes de terminar. {request.user.get_username()} devolvió sus cupos a la agenda.",
         )
-        if corrida is None or not _corrida_interrumpida(corrida):
+        if not cancelada:
             messages.error(request, "Esa generación no se puede devolver: ya terminó o sigue en marcha.")
             return redirect("procesos:bloque_editar", pk=bloque.pk)
-        tomados = {int(k): v for k, v in corrida.cupos_por_bloque.items()}
-        _devolver_cupos(tomados)
-        corrida.estado = GeneracionCartas.Estado.FALLIDO
-        corrida.mensaje_error = "Se interrumpió antes de terminar. Sus cupos se devolvieron a la agenda."
-        corrida.cupos_por_bloque = {}
-        corrida.save(update_fields=["estado", "mensaje_error", "cupos_por_bloque"])
-        logger.warning(
-            "Cupos devueltos de la generación interrumpida %s (%s): %s por %s",
-            corrida.pk, bloque.juzgado.slug, tomados, request.user.get_username(),
-        )
         messages.success(
             request,
-            f"Se devolvieron {sum(tomados.values())} cupos a la agenda. Las cartas de esa generación no salieron.",
+            f"Se devolvieron {cancelada.cupos_devueltos} cupos a la agenda. Las cartas de esa generación no salieron.",
         )
         return redirect("procesos:bloque_editar", pk=bloque.pk)
 
@@ -704,7 +464,11 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
         )
 
     def post(self, request, pk):
-        _bloque_del_usuario(request, pk)  # 403/404 antes de bloquear la fila
+        bloque = _bloque_del_usuario(request, pk)  # 403/404 antes de bloquear la fila
+        if request.POST.get("accion") == "devolver_corrida":
+            # Fuera de la transacción del bloque: cancelar() bloquea la corrida
+            # y después sus bloques, el mismo orden que usa el worker al cerrar.
+            return self._pasado(request, bloque) or self._devolver_corrida(request, bloque)
         with transaction.atomic():
             # La fila se bloquea: una generación de cartas en curso también
             # actualiza los cupos ocupados.
@@ -712,9 +476,6 @@ class BloqueEditarView(PuedeEditarAgendaMixin, _AvisaSiElBloqueNoExiste, View):
             pasado = self._pasado(request, bloque)
             if pasado:
                 return pasado
-
-            if request.POST.get("accion") == "devolver_corrida":
-                return self._devolver_corrida(request, bloque)
 
             if request.POST.get("accion") == "cerrar":
                 if bloque.cupos_usados == 0:

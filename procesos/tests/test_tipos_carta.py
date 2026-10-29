@@ -223,10 +223,12 @@ class PlantillasPorTipoTest(TestCase):
 
 
 class CapacidadPorPaginaTest(TestCase):
-    def test_el_valor_por_defecto_cabe_con_firma_y_sello(self):
-        """Medido con las plantillas por defecto y datos reales (ver el
-        comentario de Juzgado.max_causas_por_pagina): más de ~14 filas
-        empujan la firma a una segunda hoja."""
+    def test_el_valor_por_defecto_es_12(self):
+        """Solo fija el valor. Que 12 filas quepan en una hoja con firma y
+        sello se midió a mano, abriendo las plantillas por defecto en Word
+        con datos reales (ver el comentario de Juzgado.max_causas_por_pagina):
+        aquí no hay cómo paginar un .docx. Si se cambian las plantillas, hay
+        que volver a medirlo."""
         from nucleo.models import Juzgado
         self.assertEqual(Juzgado._meta.get_field("max_causas_por_pagina").default, 12)
         self.assertEqual(crear_juzgado().max_causas_por_pagina, 12)

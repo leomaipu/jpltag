@@ -17,8 +17,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from nucleo.models import BloqueAjuste, BloqueHorario, Rol
-from procesos.views import (
-    CuposInsuficientes, _descontar_cupos_usados, _devolver_cupos, _pool_de_agenda, _reservar_agenda,
+from procesos.generacion import (
+    CuposInsuficientes, descontar_cupos_usados, devolver_cupos, pool_de_agenda, reservar_agenda,
 )
 
 from procesos.models import GeneracionCartas
@@ -340,28 +340,28 @@ class AgendaListadoTest(BloquesBase):
 
 class GeneracionYEdicionConcurrenteTest(BloquesBase):
     def test_descontar_cupos_no_pisa_una_edicion_hecha_mientras_corria(self):
-        pool, bloque_por_slot = _pool_de_agenda(self.j1)
+        pool, bloque_por_slot = pool_de_agenda(self.j1)
         # alguien edita el bloque después de que la generación leyó la agenda
         BloqueHorario.objects.filter(pk=self.libre.pk).update(cupos_totales=20)
         slot = (self.libre.fecha.strftime("%d/%m/%Y"), "09:00")
-        _descontar_cupos_usados({"AAAA11": slot, "BBBB22": slot}, bloque_por_slot)
+        descontar_cupos_usados({"AAAA11": slot, "BBBB22": slot}, bloque_por_slot)
         libre = self.recargar(self.libre)
         self.assertEqual((libre.cupos_usados, libre.cupos_totales), (2, 20))
 
     def test_descontar_cupos_no_recorta_en_silencio_una_sobreventa(self):
-        pool, bloque_por_slot = _pool_de_agenda(self.j1)
+        pool, bloque_por_slot = pool_de_agenda(self.j1)
         BloqueHorario.objects.filter(pk=self.libre.pk).update(cupos_totales=2)
         slot = (self.libre.fecha.strftime("%d/%m/%Y"), "09:00")
         with self.assertRaises(CuposInsuficientes):
-            _descontar_cupos_usados({f"P{i}": slot for i in range(5)}, bloque_por_slot)
+            descontar_cupos_usados({f"P{i}": slot for i in range(5)}, bloque_por_slot)
         self.assertEqual(self.recargar(self.libre).cupos_usados, 0)
 
     def test_descontar_cupos_falla_si_el_bloque_cambio_de_hora(self):
-        pool, bloque_por_slot = _pool_de_agenda(self.j1)
+        pool, bloque_por_slot = pool_de_agenda(self.j1)
         BloqueHorario.objects.filter(pk=self.libre.pk).update(hora=time(17, 0))
         slot = (self.libre.fecha.strftime("%d/%m/%Y"), "09:00")
         with self.assertRaises(CuposInsuficientes):
-            _descontar_cupos_usados({"AAAA11": slot}, bloque_por_slot)
+            descontar_cupos_usados({"AAAA11": slot}, bloque_por_slot)
 
     def test_la_base_rechaza_cupos_ocupados_sobre_el_total(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
@@ -452,7 +452,7 @@ class HorasDeHoyTest(BloquesBase):
 
     def test_un_bloque_de_hoy_cuya_hora_paso_no_se_ofrece_a_las_cartas(self):
         with _RelojFijo(_a_las(12)):
-            pool, por_slot = _pool_de_agenda(self.j1)
+            pool, por_slot = pool_de_agenda(self.j1)
         horas = {hora for _, hora in por_slot}
         self.assertNotIn("09:00", {h for f, h in por_slot if f == HOY.strftime("%d/%m/%Y")})
         self.assertIn("16:00", horas)
@@ -581,24 +581,24 @@ class GeneracionDeCartasYAgendaTest(_GeneracionBase):
 
     def test_reservar_agenda_reparte_y_descuenta_en_un_solo_paso(self):
         grupos = {f"P{i}": {"nro_parte_min": i} for i in range(3)}
-        with mock.patch("procesos.views.asignar_agenda") as asignar:
+        with mock.patch("procesos.generacion.asignar_agenda") as asignar:
             slot = (MANANA.strftime("%d/%m/%Y"), "09:00")
             asignar.return_value = ({"P0": slot, "P1": slot, "P2": "SIN_AGENDA"}, ["P2"])
-            slots, sin_cupo, tomados, corrida = _reservar_agenda(self.j1, grupos)
+            reserva, corrida = reservar_agenda(self.j1, grupos)
         self.assertIsNone(corrida)
-        self.assertEqual(tomados, {self.bloque.pk: 2})
+        self.assertEqual(reserva.tomados, {self.bloque.pk: 2})
         self.assertEqual(self.recargar(self.bloque).cupos_usados, 2)
 
     def test_si_la_generacion_falla_los_cupos_vuelven_a_la_agenda(self):
-        with mock.patch("procesos.views.generar_cartas_certificadas", side_effect=RuntimeError("se cayó")), \
-                self.assertLogs("procesos.views", level="ERROR"):
+        with mock.patch("procesos.generacion.generar_cartas_certificadas", side_effect=RuntimeError("se cayó")), \
+                self.assertLogs("procesos.generacion", level="ERROR"):
             self.subir(("AAAA11", "BBBB22"))
         generacion = GeneracionCartas.objects.get(juzgado=self.j1)
         self.assertEqual(generacion.estado, GeneracionCartas.Estado.FALLIDO)
         self.assertEqual(self.recargar(self.bloque).cupos_usados, 0)
 
     def test_devolver_cupos_nunca_deja_el_contador_bajo_cero(self):
-        _devolver_cupos({self.bloque.pk: 5})
+        devolver_cupos({self.bloque.pk: 5})
         self.assertEqual(self.recargar(self.bloque).cupos_usados, 0)
 
     def test_una_sentencia_no_gasta_cupos(self):
@@ -667,7 +667,7 @@ class CorridaInterrumpidaTest(_GeneracionBase):
     tienen que quedar explicados por una corrida «en curso»."""
 
     def _interrumpir(self):
-        with mock.patch("procesos.views.generar_cartas_certificadas", side_effect=SystemExit), \
+        with mock.patch("procesos.generacion.generar_cartas_certificadas", side_effect=SystemExit), \
                 self.assertRaises(SystemExit):
             self.subir(("AAAA11", "BBBB22"))
         return GeneracionCartas.objects.get(juzgado=self.j1)

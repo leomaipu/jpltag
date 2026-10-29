@@ -54,6 +54,10 @@ class GeneracionCartas(models.Model):
         default=dict, blank=True,
         help_text="Avisos del motor (filas sin patente, disposiciones sin multa, etc.), para mostrar en el resultado.",
     )
+    patentes = models.JSONField(
+        default=list, blank=True,
+        help_text="Patentes que recibieron carta en esta corrida: sirve para avisar si se repite el envío.",
+    )
     cupos_por_bloque = models.JSONField(
         default=dict, blank=True,
         help_text="Cupos que tomó esta corrida de cada bloque de la agenda: {id del bloque: cantidad}.",

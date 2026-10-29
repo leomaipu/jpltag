@@ -55,6 +55,18 @@
     });
   });
 
+  // La fecha de sentencia se muestra solo con «Sentencia». El CSS lo hace con
+  // :has(); esta clase cubre los navegadores que no lo tienen (Firefox < 121).
+  function marcarSentencia(form) {
+    var elegido = form.querySelector('.tarjetas-tipo input:checked');
+    form.classList.toggle("es-sentencia", !!elegido && elegido.value === "SENTENCIA");
+  }
+  doc.querySelectorAll("form[data-procesa]").forEach(marcarSentencia);
+  doc.addEventListener("change", function (e) {
+    var form = e.target.closest("form[data-procesa]");
+    if (form && e.target.closest(".tarjetas-tipo")) { marcarSentencia(form); }
+  });
+
   // Generar cartas puede tardar minutos con una nómina grande: se muestra
   // el estado de espera en vez de dejar una pantalla quieta.
   doc.addEventListener("submit", function (e) {

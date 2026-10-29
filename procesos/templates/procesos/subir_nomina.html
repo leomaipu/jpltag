@@ -37,6 +37,7 @@
           <label class="solo-lectores" for="{{ form.nomina.id_for_label }}">Nómina del mes (.xlsx)</label>
           {{ form.nomina }}
         </div>
+        <span class="campo__ayuda">Hasta {{ max_cartas }} cartas por generación. Si la nómina da más para este juzgado, divide el Excel dejando todas las filas de cada patente en la misma parte.</span>
         {{ form.nomina.errors }}
       </div>
     </section>
@@ -105,11 +106,18 @@
 
   <div class="bloque procesando" role="status" tabindex="-1">
     <h2>Generando las cartas</h2>
-    <p class="texto-suave">Con una nómina grande puede tardar hasta 3 minutos. Mantén esta pestaña abierta: al terminar verás los archivos.</p>
+    <p class="texto-suave">Puede tardar hasta 3 minutos. Mantén esta pestaña abierta: al terminar verás los archivos.</p>
     <div class="barra-espera" aria-hidden="true"></div>
     <button type="button" class="btn btn--chico procesando__cancelar" data-cancelar>Dejar de esperar</button>
     <p class="campo__ayuda mt">Si dejas de esperar, revisa el Inicio antes de volver a enviar: la generación puede haber terminado y no conviene duplicarla.</p>
   </div>
+
+  {% if pide_confirmacion %}
+  <section class="bloque" aria-labelledby="repetir-titulo">
+    <h2 id="repetir-titulo" class="seccion__titulo">¿Generar de nuevo?</h2>
+    <label class="casilla" for="{{ form.confirmar_repeticion.id_for_label }}">{{ form.confirmar_repeticion }} {{ form.confirmar_repeticion.label }}</label>
+  </section>
+  {% endif %}
 
   <div class="acciones acciones--fija">
     <button type="submit" class="btn btn--primario">Generar cartas</button>

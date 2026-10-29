@@ -84,7 +84,7 @@ abogada.
 
 Cuántas infracciones caben en una hoja (`Juzgado.max_causas_por_pagina`,
 12 por defecto): se midió con las plantillas por defecto y la nómina real
-de octubre-2026 — caben 14 con firma + sello (la más alta) y 16 ya
+de febrero-2026 — caben 14 con firma + sello (la más alta) y 16 ya
 desborda; si una patente tiene más, la carta sale en varias partes
 completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
 firma. Con una plantilla propia más alta o más compacta, ajustar desde
@@ -140,9 +140,42 @@ Cada bloque es una audiencia con cupos; las citaciones toman cupos del primer bl
 - Solo se ofrecen y se editan bloques que **aún no empiezan** (hora de Chile). Los que ya pasaron quedan en el Historial, de solo lectura.
 - Un bloque **con cartas** (cupos ocupados) no cambia de fecha ni de hora, sus cupos no bajan de los ocupados y no se elimina. Para mover la audiencia: «Cerrar cupos» y crear un bloque nuevo (la pantalla ofrece el atajo).
 - «Corregir cupos ocupados» es la única forma de devolver cupos a mano: pide un motivo y queda en `BloqueAjuste` (quién, cuándo, de→a, por qué), visible en la pantalla del bloque.
-- La generación de cartas reserva los cupos bajo bloqueo de filas y en una sola transacción (`_reservar_agenda`): dos generaciones simultáneas no se reparten el mismo cupo y editar un bloque no deja cartas con datos viejos. La corrida queda anotada `EN_CURSO` con los cupos que tomó (`cupos_por_bloque`); si falla, los devuelve; si el proceso muere a mitad de camino, a los 10 minutos la pantalla del bloque ofrece «Devolver los cupos de esa generación».
+- La generación de cartas reserva los cupos bajo bloqueo de filas y en una sola transacción (`procesos.generacion.reservar_agenda`): dos generaciones simultáneas no se reparten el mismo cupo y editar un bloque no deja cartas con datos viejos. La corrida queda anotada `EN_CURSO` con los cupos que tomó (`cupos_por_bloque`); si falla, los devuelve; si el proceso muere a mitad de camino, a los 10 minutos la pantalla del bloque ofrece «Devolver los cupos de esa generación».
 - La base exige `cupos_usados <= cupos_totales` (restricción) y dos pestañas no se pisan: el formulario lleva una huella de fecha, hora y cupos.
 - En `/admin/` los cupos ocupados son de solo lectura y no se borran bloques con cartas.
+
+### Controles de una generación de cartas (`procesos/generacion.py`)
+
+La generación corre dentro de la petición web, que el servidor corta a los
+180 s. Por eso, y para no repetir envíos por error:
+
+- **Topes:** hasta `JPLTAG_MAX_CARTAS_POR_CORRIDA` cartas por generación (500)
+  y hasta `JPLTAG_MAX_CARTAS_POR_ARCHIVO` por archivo Word (100; «Cartas por
+  paquete» parte en 50). Una nómina que da más para el juzgado se rechaza
+  antes de tocar la agenda: hay que dividir el Excel dejando todas las filas
+  de una patente en la misma parte. Los valores salen de lo medido con la
+  nómina real (ver `config/settings.py`).
+- **Una tanda a la vez** en todo el sitio (3 workers, 1 GB): si otra
+  generación está en curso (menos de 10 minutos), se pide esperar.
+- **Patentes repetidas:** si alguna patente ya recibió la misma carta, del
+  mismo juzgado y período, en una corrida que terminó, se avisa y hay que
+  confirmarlo. Cada corrida guarda sus patentes (`GeneracionCartas.patentes`);
+  las corridas anteriores a este cambio no las tienen y no cuentan.
+- **«Citación y sentencia» sin cupo:** si la agenda no alcanza para todas las
+  patentes no se genera (condenaría por no concurrir a una audiencia sin día).
+  La «Citación» sola sigue saliendo «a coordinar».
+- **Lotes que fallan:** sus cartas no quedan en el seguimiento, sus cupos
+  vuelven a la agenda y la pantalla de resultado lo muestra. El detalle
+  técnico va al registro del servidor, no a la pantalla.
+- **Días sin juzgado:** las patentes de un día que ningún juzgado activo
+  procesa van al log de errores (`FUERA_DE_TODO_RANGO`) y se avisan. Los
+  rangos de los juzgados activos no se pueden traslapar (`Juzgado.clean`).
+- **Firmante:** nombre y cargo son obligatorios y no se prellenan con el
+  usuario conectado.
+
+Lo rechazado antes de empezar no deja corrida ni archivos en disco; una
+nómina sin mes reconocible o sin patentes del rango sí queda como corrida
+«Falló», con el motivo.
 
 ### UTM automático (Módulo 4)
 
@@ -159,7 +192,7 @@ servidor en DESPLIEGUE.md.
 
 ## Roles y permisos
 
-| Rol | Plantilla | Agenda | Generar cartas | Gestionar usuarios |
+| Rol | Plantilla | Agenda | Generar cartas | Gestionar usuarios (en `/admin/`) |
 |---|---|---|---|---|
 | Operador | Editar | Editar | Sí | No |
 | Secretario(a) | Editar | Editar | Sí | No |
@@ -168,7 +201,9 @@ servidor en DESPLIEGUE.md.
 
 Definidos en `nucleo/models.py` (`PERMISOS_POR_ROL`), confirmados con el
 Juzgado el 10-oct-2026. Un Administrador sin juzgado asignado ve los 3;
-el resto, solo el suyo.
+el resto, solo el suyo, y un perfil de otro rol sin juzgado no ve ninguno
+(`/admin/` no deja guardarlo así). Los usuarios y perfiles se crean en
+`/admin/` (la cuenta necesita `is_staff`); no hay pantalla propia.
 
 ## Desarrollo local
 

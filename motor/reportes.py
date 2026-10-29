@@ -21,11 +21,14 @@ def exportar_duplicados(base, df_duplicados):
     return nombre_archivo
 
 
-def escribir_log_errores(base, sin_fecha, otro_mes, sin_causas, patentes_sin_cupo, grupos_ref):
+def escribir_log_errores(base, sin_fecha, otro_mes, sin_causas, patentes_sin_cupo, grupos_ref,
+                         fuera_de_rango=None):
     """Log CSV [ID_Causa, Numero_Parte, Motivo_Error, Detalle_Error] de las
     causas/patentes que no terminaron en ninguna carta de este juzgado, y
     por qué: fecha ilegible, infracción de otro mes, patente sin ninguna
-    causa válida, o sin cupo de agenda. Devuelve la ruta del archivo, o
+    causa válida, sin cupo de agenda, o de un día que ningún juzgado
+    procesa (`fuera_de_rango`). Las patentes del rango de OTRO juzgado no
+    se anotan: las recibe ese juzgado. Devuelve la ruta del archivo, o
     None si no hubo nada que registrar."""
     filas = []
     id_causa = 0
@@ -55,6 +58,15 @@ def escribir_log_errores(base, sin_fecha, otro_mes, sin_causas, patentes_sin_cup
             "Motivo_Error": "DATOS_INCOMPLETOS",
             "Detalle_Error": f"Patente {pat}: todas sus filas venían sin N° de parte ni fecha",
         })
+
+    for pat, g in (fuera_de_rango or {}).items():
+        for c in g["causas"]:
+            id_causa += 1
+            filas.append({
+                "ID_Causa": id_causa, "Numero_Parte": c["nroParte"],
+                "Motivo_Error": "FUERA_DE_TODO_RANGO",
+                "Detalle_Error": f"Patente {pat}: el día {g['dia']} no lo procesa ningún juzgado activo",
+            })
 
     for pat in (patentes_sin_cupo or []):
         g = grupos_ref.get(pat, {})

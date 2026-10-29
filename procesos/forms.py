@@ -1,9 +1,10 @@
 from datetime import time, timedelta
 
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 
-from motor.plantilla import validar_plantilla
+from motor.plantilla import MARCADOR_DESCONOCIDO, validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta, ahora_local
 
 
@@ -68,23 +69,38 @@ class SubirNominaForm(forms.Form):
         required=False,
         help_text="Opcional. Sin ella, todas las causas cuentan 1 UTM.",
     )
+    # Sin valor por defecto a propósito: quien firma no es necesariamente
+    # quien está conectado (un Operador no firma como Secretario).
     nombre_firmante = forms.CharField(
-        label="Nombre de quien firma", max_length=150, required=False,
-        error_messages={"max_length": "El nombre es demasiado largo (máximo 150 letras)."},
+        label="Nombre de quien firma", max_length=150,
+        error_messages={
+            "required": "Escribe el nombre de quien firma las cartas.",
+            "max_length": "El nombre es demasiado largo (máximo 150 letras).",
+        },
     )
     cargo_firma = forms.ChoiceField(
         label="Cargo de quien firma",
-        choices=CARGOS_FIRMA,
-        required=False,
+        choices=[("", "Elige el cargo")] + CARGOS_FIRMA,
+        error_messages={"required": "Elige el cargo de quien firma."},
     )
     n_cartas_paquete = forms.IntegerField(
         label="Cartas por paquete",
-        min_value=0, required=False, initial=0,
+        min_value=0, max_value=settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO, required=False,
+        initial=min(50, settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO),
         error_messages={
             "min_value": "Escribe 0 o un número mayor.",
-            "invalid": "Escribe un número entero, por ejemplo 100.",
+            "max_value": f"El máximo es {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} cartas por archivo.",
+            "invalid": "Escribe un número entero, por ejemplo 50.",
         },
-        help_text="0 deja todas en un solo archivo. Un número mayor reparte la impresión en tandas.",
+        help_text=(
+            f"Reparte la impresión en archivos de hasta {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} cartas. "
+            f"0 deja todas en un solo archivo (solo si son {settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO} o menos)."
+        ),
+    )
+    # Se muestra solo cuando la generación avisó que hay patentes que ya
+    # recibieron esta carta en el mismo período (procesos.generacion.EnvioRepetido).
+    confirmar_repeticion = forms.BooleanField(
+        label="Sí, generar de nuevo las cartas de esas patentes", required=False,
     )
 
     def _validar_excel(self, archivo):
@@ -161,7 +177,7 @@ class PlantillaJuzgadoForm(forms.ModelForm):
                 raise forms.ValidationError("La plantilla debe ser un archivo Word (.docx).")
             es_valida, mensaje = validar_plantilla(archivo, tipo)
             archivo.seek(0)
-            if not es_valida and mensaje.startswith("A la plantilla le falta"):
+            if not es_valida and mensaje.startswith(("A la plantilla le falta", MARCADOR_DESCONOCIDO)):
                 raise forms.ValidationError(mensaje)
             if not es_valida and ("zip" in mensaje.lower() or "package" in mensaje.lower()):
                 raise forms.ValidationError(
@@ -439,7 +455,7 @@ class BloqueSerieForm(_CuposMixin, forms.Form):
         },
     )
     cupos_totales = forms.IntegerField(
-        label="Cupos de cada una", initial=12,
+        label="Cupos de cada una", initial=BloqueHorario._meta.get_field("cupos_totales").default,
         widget=forms.NumberInput(attrs={"min": 1, "max": CUPOS_MAXIMOS, "inputmode": "numeric"}),
         error_messages={
             "required": "Indica cuántos cupos hay.", "invalid": "Escribe un número entero.",

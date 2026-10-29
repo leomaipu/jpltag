@@ -1,25 +1,26 @@
 """
-Asignación de audiencias a cada patente, en orden de llegada (N° de parte
-mínimo). Porteado de generar_notificaciones_JPL1.py.
+Asignación de audiencias a cada patente. Porteado de
+generar_notificaciones_JPL1.py.
 
-En los scripts originales la disponibilidad de horarios venía de una
-lista fija en el código (AGENDA_AUDIENCIAS) o, si existía, de un archivo
-.ics exportado manualmente desde un calendario (obtener_disponibilidad_
-calendario). En la aplicación web ese mecanismo queda reemplazado por los
-registros de BloqueHorario de cada Juzgado (Fase 4 — Agenda con cupos),
-así que ese fallback por .ics no se portó: quien llame a asignar_agenda()
-aquí pasa la lista de slots disponibles ya leída desde la base de datos,
-en el mismo formato (fecha_en_letras, hora) que usaba el script.
+El orden intenta ser el de llegada (N° de parte mínimo primero), pero con
+los N° de parte reales de la nómina (`1255846-M78`) no se pueden comparar
+como número: todas las patentes empatan y queda el orden del Excel. Es el
+mismo orden efectivo de los scripts originales.
+
+Los horarios disponibles vienen de los BloqueHorario de cada Juzgado
+(procesos.generacion.pool_de_agenda): una lista de slots
+("dd/mm/aaaa", "HH:MM"), repetidos tantas veces como cupos tenga el
+bloque. El fallback por .ics de los scripts no se portó.
 """
 
 SLOT_SIN_AGENDA = ("A COORDINAR CON EL JUZGADO", "")
 
 
 def asignar_agenda(grupos, agenda):
-    """Asigna un slot de `agenda` (lista de (fecha_en_letras, hora)) a cada
-    patente de `grupos`, en orden de N° de parte mínimo (quien llegó
-    primero, se atiende primero). Devuelve (slots, patentes_sin_cupo):
-    `slots` es un dict patente -> (fecha_en_letras, hora), y
+    """Asigna un slot de `agenda` (lista de ("dd/mm/aaaa", "HH:MM")) a cada
+    patente de `grupos`, en orden de N° de parte mínimo (ver el docstring
+    del módulo). Devuelve (slots, patentes_sin_cupo):
+    `slots` es un dict patente -> ("dd/mm/aaaa", "HH:MM"), y
     `patentes_sin_cupo` la lista de patentes que no alcanzaron un slot
     (quedan con SLOT_SIN_AGENDA, "A COORDINAR CON EL JUZGADO")."""
     def nro_parte_min(g):

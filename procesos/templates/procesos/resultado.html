@@ -44,6 +44,22 @@
 </section>
 {% endif %}
 
+{% if generacion.avisos.errores_generando_lotes %}
+<section class="bloque" role="alert">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Lotes que no salieron</span></h2>
+  <ul class="lista">
+    {% for e in generacion.avisos.errores_generando_lotes %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if generacion.avisos.fuera_de_todo_rango %}
+<section class="bloque">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Patentes sin juzgado</span></h2>
+  <p class="texto-suave">{{ generacion.avisos.fuera_de_todo_rango }} patente{{ generacion.avisos.fuera_de_todo_rango|pluralize }} de esta nómina {{ generacion.avisos.fuera_de_todo_rango|pluralize:"tiene,tienen" }} infracciones en días que ningún juzgado procesa: no recibirán carta. Están en el log de errores; revisa los rangos de días de los juzgados.</p>
+</section>
+{% endif %}
+
 {% if generacion.avisos.disposiciones_sin_multa_definida %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa estas disposiciones</span></h2>

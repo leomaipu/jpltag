@@ -223,6 +223,17 @@ MEDIA_ROOT = BASE_DIR / "media"
 # ese juzgado (ver nucleo.models.PerfilUsuario.tiene_acceso_a).
 SALIDAS_ROOT = BASE_DIR / "salidas"
 
+# Topes de una generación de cartas (procesos/generacion.py). La generación
+# corre dentro de la petición web y el servidor la corta a los 180 s
+# (GUNICORN_CMD_ARGS=--timeout 180 en el 13-app-jpltag.sh; HAProxy a los
+# 190 s). Medido con la nómina real (feb-2026, 47.602 filas): ~20 s fijos
+# en leer y agrupar, ~0,10 s por carta en paquetes de 50 y 0,13–0,28 s por
+# carta si todo va a un solo archivo (combinar Word crece más que lineal:
+# 600 cartas en un archivo = 170 s). Con 500 cartas en paquetes de 100 la
+# corrida queda bajo ~90 s, con margen para un servidor más lento.
+JPLTAG_MAX_CARTAS_POR_CORRIDA = env.int("JPLTAG_MAX_CARTAS_POR_CORRIDA", default=500)
+JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default=100)
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ──────────────────────────────────────────────────────────────────────────

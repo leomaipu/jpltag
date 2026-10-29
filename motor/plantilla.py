@@ -78,14 +78,15 @@ docxtpl repita la fila de la tabla hacen falta 3 filas en la plantilla
     causas[].monto_txt     "1 UTM ($65.000)"
 """
 
+import logging
 import os
 import re
-import traceback
 
 import pandas as pd
 from docx.shared import Inches
 from docxcompose.composer import Composer
 from docxtpl import DocxTemplate, InlineImage
+from jinja2 import Environment, StrictUndefined, UndefinedError
 
 from .agenda import SLOT_SIN_AGENDA
 from .agrupacion import expandir_en_paginas
@@ -126,6 +127,8 @@ MAX_CAUSAS_POR_PAGINA_DEFECTO = 12
 LINEA_FIRMA_DEFECTO = "........................................."
 
 _ORDINALES = {"PRIMER": 1, "SEGUNDO": 2, "TERCER": 3}
+
+logger = logging.getLogger(__name__)
 
 
 class PlantillaNoDisponible(Exception):
@@ -365,9 +368,10 @@ def contexto_de_ejemplo(tipo=TIPO_CITACION):
 # plantilla subida no los trae, está incompleta — p. ej. un Word nuevo
 # sin los marcadores — y es mejor rechazarla al subirla que descubrirlo
 # imprimiendo cartas sin el nombre ni la patente del infractor.
+#
+# El RUT no está en la lista: hay juzgados cuya carta no lo imprime.
 _OBLIGATORIOS_COMUNES = [
     ("JUAN EJEMPLO PÉREZ", "nombre_infractor", "el nombre del infractor"),
-    ("11.111.111-1", "rut_infractor", "el RUT del infractor"),
     ("ZZZZ99-9", "patente", "la patente"),
     ("Autopista Ejemplo Dos", "causas (fila repetida {%tr for causa in causas %})",
      "la tabla con una fila por infracción"),
@@ -383,6 +387,9 @@ _OBLIGATORIOS_POR_TIPO = {
         ("3 UTM", "condena_monto", "el monto de la condena"),
     ],
 }
+
+
+MARCADOR_DESCONOCIDO = "La plantilla usa un marcador que no existe"
 
 
 def texto_de(doc):
@@ -403,8 +410,11 @@ def validar_plantilla(archivo, tipo=None):
     de guardar la plantilla — mejor que recién enterarse la próxima vez
     que alguien suba una nómina y se rompan todas las cartas.
 
+    Un marcador que no existe (p. ej. {{ domicilio_infrator }}) también
+    se rechaza: al generar saldría vacío sin que nadie lo note.
+
     Si se indica el `tipo` de carta, además comprueba que la carta
-    renderizada contenga los datos esenciales de ese tipo (nombre, RUT,
+    renderizada contenga los datos esenciales de ese tipo (nombre,
     patente, tabla de infracciones y la fecha de la audiencia/sentencia).
     Devuelve (es_valida, mensaje_error)."""
     try:
@@ -415,8 +425,10 @@ def validar_plantilla(archivo, tipo=None):
         ctx["firma_foto"] = ""
         ctx["linea_firma"] = LINEA_FIRMA_DEFECTO
         ctx["firma_img"] = LINEA_FIRMA_DEFECTO
-        tpl.render(ctx)
+        tpl.render(ctx, jinja_env=Environment(undefined=StrictUndefined))
         texto = texto_de(tpl.docx)
+    except UndefinedError as exc:
+        return False, f"{MARCADOR_DESCONOCIDO}: {exc}. Revisa cómo está escrito (lista de marcadores en la ayuda)."
     except Exception as exc:
         return False, str(exc)
     if tipo is not None:
@@ -470,11 +482,16 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
           "carpeta": ruta de la carpeta con el envío, o None si no se
                       generó nada,
           "archivos": [ruta de cada ..._Lote_N.docx generado],
-          "seguimiento": ruta del Excel de seguimiento, o None,
+          "seguimiento": ruta del Excel de seguimiento, o None — solo con
+                         las cartas que de verdad salieron,
           "errores": [mensaje de error por cada lote que falló],
+          "patentes_fallidas": [patentes de los lotes que fallaron],
         }
+
+    El detalle técnico de un lote que falla va al log del servidor, no a
+    "errores" (que se muestra a quien generó las cartas).
     """
-    resultado = {"carpeta": None, "archivos": [], "seguimiento": None, "errores": []}
+    resultado = {"carpeta": None, "archivos": [], "seguimiento": None, "errores": [], "patentes_fallidas": []}
 
     if not grupos_filtrados:
         resultado["errores"].append(f"Sin datos — no se generaron cartas certificadas para {base_lote}.")
@@ -503,34 +520,44 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         grupo_lote = dict(lote_patentes)
         paginas = expandir_en_paginas(grupo_lote, max_causas)
         nombre_archivo = os.path.join(carpeta, f"{base_lote}_Cartas_Certificadas_Lote_{num_lote}.docx")
+        # El N° de Carta avanza aunque el lote falle: así una nueva corrida
+        # de las cartas que faltan no se confunde con las que sí salieron.
+        primera_carta = numero_carta_global + 1
+        numero_carta_global += len(lote_patentes)
+        seguimiento_lote = []
         try:
             documentos_carta = []
             pat_vista = None
+            numero_carta = primera_carta - 1
             for pg in paginas:
                 if pg["patente"] != pat_vista:
-                    numero_carta_global += 1
+                    numero_carta += 1
                     pat_vista = pg["patente"]
                     for causa in pg["info"]["causas"]:
-                        seguimiento.append({
+                        seguimiento_lote.append({
                             "Lote": num_lote,
-                            "N° de Carta": numero_carta_global,
+                            "N° de Carta": numero_carta,
                             "Tipo de carta": tipo_carta,
                             "Patente": pg["patente"],
                             "N° de Parte": causa["nroParte"],
                             "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
                         })
                 slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
-                contexto = construir_contexto(pg, slot, numero_carta_global, config)
+                contexto = construir_contexto(pg, slot, numero_carta, config)
                 documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
             doc_final = combinar_cartas(documentos_carta)
             doc_final.save(nombre_archivo)
-        except PermissionError:
-            resultado["errores"].append(f"Archivo abierto: '{nombre_archivo}'. Ciérralo e intenta de nuevo.")
-            continue
         except Exception:
-            resultado["errores"].append(f"Error generando '{nombre_archivo}': {traceback.format_exc()}")
+            logger.exception("Falló el lote %s de %s", num_lote, base_lote)
+            resultado["errores"].append(
+                f"El lote {num_lote} (cartas {primera_carta} a {numero_carta_global}) no se pudo "
+                "generar y no se incluyó. Sus cupos de agenda se devolvieron; el detalle quedó en "
+                "el registro del servidor."
+            )
+            resultado["patentes_fallidas"].extend(pat for pat, _ in lote_patentes)
             continue
 
+        seguimiento.extend(seguimiento_lote)
         resultado["archivos"].append(nombre_archivo)
 
     if seguimiento:

@@ -116,6 +116,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "procesos.contexto.ajustes",
             ],
         },
     },
@@ -235,6 +236,11 @@ SALIDAS_ROOT = BASE_DIR / "salidas"
 # proceso hijo: 50 cartas de las patentes con más causas llegan a ~730 MB
 # (medido el 29-oct-2026 con 1 CPU). El worker tiene 1 GB.
 JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default=50)
+# Agenda de audiencias en las cartas. Apagada mientras la nómina no traiga
+# la fecha de citación: no se reservan cupos y toda citación sale «en fecha
+# y hora a coordinar con el Juzgado». La pantalla de la Agenda sigue
+# disponible.
+JPLTAG_AGENDA_ACTIVA = env.bool("JPLTAG_AGENDA_ACTIVA", default=False)
 # Sin worker (pruebas, desarrollo con runserver) la misma fase 2 corre
 # dentro de la petición. En producción, siempre False.
 JPLTAG_GENERAR_EN_LA_PETICION = env.bool("JPLTAG_GENERAR_EN_LA_PETICION", default=EN_PRUEBAS)

@@ -164,6 +164,7 @@ VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesione
 GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
 JPLTAG_MAX_CARTAS_POR_ARCHIVO # opcional — tope de cartas por archivo Word (50)
 JPLTAG_LOG_NIVEL             # opcional — INFO por defecto
+JPLTAG_AGENDA_ACTIVA         # opcional — False: las cartas no usan la agenda (todas «a coordinar»)
 ```
 
 `JPLTAG_GENERAR_EN_LA_PETICION` existe solo para pruebas y desarrollo sin

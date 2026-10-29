@@ -42,7 +42,8 @@
       {% if generacion.fecha_sentencia %}<div><dt>Fecha de la sentencia</dt><dd>{{ generacion.fecha_sentencia|date:"d/m/Y" }}</dd></div>{% endif %}
       <div><dt>Filas con N° de parte repetido (excluidas)</dt><dd>{{ generacion.total_duplicados }}</dd></div>
       <div><dt>Patentes sin causa válida (excluidas)</dt><dd>{{ generacion.total_sin_causas_validas }}</dd></div>
-      {% if generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
+      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>A coordinar con el Juzgado (agenda desactivada)</dd></div>
+      {% elif generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
       <div><dt>Generada</dt><dd>{{ generacion.creado|date:"j M Y, H:i"|lower }}</dd></div>
       <div><dt>Por</dt><dd>{{ generacion.usuario.get_full_name|default:generacion.usuario.username }}</dd></div>
     </dl>
@@ -62,6 +63,17 @@
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Lotes que no salieron</span></h2>
   <ul class="lista">
     {% for e in generacion.avisos.errores_generando_lotes %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if generacion.avisos.rol_municipal_no_encontrado or generacion.avisos.rol_municipal_sin_formato or generacion.avisos.rol_municipal_otras_columnas %}
+<section class="bloque">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa el ROL</span></h2>
+  <ul class="lista">
+    {% if generacion.avisos.rol_municipal_no_encontrado %}<li>La nómina no trae la columna del ROL municipal (valores terminados en «-MUN»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_municipal_sin_formato %}<li>{{ generacion.avisos.rol_municipal_sin_formato }} valor{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"es" }} de la columna del ROL no termina{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"n" }} en «-MUN»: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_municipal_otras_columnas %}<li>Más de una columna parece traer el ROL; se usó la primera. Las otras: {{ generacion.avisos.rol_municipal_otras_columnas|join:", " }}.</li>{% endif %}
   </ul>
 </section>
 {% endif %}

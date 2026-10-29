@@ -529,7 +529,7 @@ class DosPestanasTest(BloquesBase):
 _SALIDAS_BLOQUES = tempfile.mkdtemp(prefix="jpltag-pruebas-bloques-")
 
 
-@override_settings(SALIDAS_ROOT=_SALIDAS_BLOQUES)
+@override_settings(SALIDAS_ROOT=_SALIDAS_BLOQUES, JPLTAG_AGENDA_ACTIVA=True)
 class _GeneracionBase(BloquesBase):
 
     @classmethod

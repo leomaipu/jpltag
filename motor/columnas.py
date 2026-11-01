@@ -88,7 +88,8 @@ def get_col(row, key):
 def parsear_fecha(fecha_str):
     """Devuelve (año, mes, día) o (None, None, None) si no reconoce el formato."""
     for fmt in ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y",
-                "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"]:
+                "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S",
+                "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M"]:
         try:
             d = _dt.datetime.strptime(str(fecha_str).strip(), fmt)
             return d.year, d.month, d.day

@@ -559,6 +559,9 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
                 avisos.update(avisos_citacion)
             with transaction.atomic():
                 return _encolar(reserva)
+        if tiene_columna(df_limpio, "FECHA_CITA"):
+            # Con la agenda activa manda la agenda; que la persona lo sepa.
+            avisos["citacion_ignorada_por_agenda"] = True
         _, corrida = reservar_agenda(
             juzgado, incluidos, _encolar,
             exigir_cupo_para_todas=(tipo_carta == TipoCarta.CITACION_SENTENCIA),
@@ -592,6 +595,8 @@ def _citaciones_de_la_nomina(df, incluidos):
         avisos["citacion_sin_columna"] = True
     if sin_fecha and tiene_columna(df, "FECHA_CITA"):
         avisos["citacion_sin_fecha"] = len(sin_fecha)
+        if not slots:
+            avisos["citacion_ninguna"] = True
     if distintas:
         avisos["citacion_fechas_distintas"] = len(distintas)
     if pasadas:

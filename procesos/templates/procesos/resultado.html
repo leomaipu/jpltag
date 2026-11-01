@@ -42,7 +42,7 @@
       {% if generacion.fecha_sentencia %}<div><dt>Fecha de la sentencia</dt><dd>{{ generacion.fecha_sentencia|date:"d/m/Y" }}</dd></div>{% endif %}
       <div><dt>Filas con N° de parte repetido (excluidas)</dt><dd>{{ generacion.total_duplicados }}</dd></div>
       <div><dt>Patentes sin causa válida (excluidas)</dt><dd>{{ generacion.total_sin_causas_validas }}</dd></div>
-      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>{% if generacion.avisos.citacion_sin_columna %}A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN){% else %}Fecha de citación tomada de la nómina (sin hora){% endif %}</dd></div>
+      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>{% if generacion.avisos.citacion_sin_columna %}A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN){% elif generacion.avisos.citacion_ninguna %}A coordinar con el Juzgado (ninguna fecha de citación legible en la nómina){% else %}Fecha de citación tomada de la nómina (sin hora){% endif %}</dd></div>
       {% elif generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
       <div><dt>Generada</dt><dd>{{ generacion.creado|date:"j M Y, H:i"|lower }}</dd></div>
       <div><dt>Por</dt><dd>{{ generacion.usuario.get_full_name|default:generacion.usuario.username }}</dd></div>
@@ -77,10 +77,11 @@
 </section>
 {% endif %}
 
-{% if generacion.avisos.citacion_sin_columna or generacion.avisos.citacion_sin_fecha or generacion.avisos.citacion_fechas_distintas or generacion.avisos.citacion_en_el_pasado or generacion.avisos.citacion_ilegible %}
+{% if generacion.avisos.citacion_ignorada_por_agenda or generacion.avisos.citacion_sin_columna or generacion.avisos.citacion_sin_fecha or generacion.avisos.citacion_fechas_distintas or generacion.avisos.citacion_en_el_pasado or generacion.avisos.citacion_ilegible %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa la fecha de citación</span></h2>
   <ul class="lista">
+    {% if generacion.avisos.citacion_ignorada_por_agenda %}<li>La agenda está activa: las cartas usan los cupos de la agenda y se ignoró la FECHA CITACIÓN de la nómina.</li>{% endif %}
     {% if generacion.avisos.citacion_sin_columna %}<li>La nómina no trae una columna «FECHA CITACIÓN»: en las cartas la audiencia sale «en fecha y hora a coordinar con el Juzgado».</li>{% endif %}
     {% if generacion.avisos.citacion_sin_fecha %}<li>{{ generacion.avisos.citacion_sin_fecha }} patente{{ generacion.avisos.citacion_sin_fecha|pluralize }} sin fecha de citación legible: su carta sale «a coordinar con el Juzgado».</li>{% endif %}
     {% if generacion.avisos.citacion_ilegible %}<li>{{ generacion.avisos.citacion_ilegible }} patente{{ generacion.avisos.citacion_ilegible|pluralize }} con una fecha de citación que no se pudo leer (se ignoró esa fila).</li>{% endif %}

@@ -73,7 +73,7 @@ class AgendaDesactivadaTest(TestCase):
         texto = self._texto_de_las_cartas(corrida)
         self.assertIn(f"el día {futura}", texto)
         self.assertNotIn("a coordinar", texto)
-        self.assertNotIn(" hrs", texto.split(futura)[1][:12])
+        self.assertNotRegex(texto, rf"{futura}, a las")
         self.assertContains(resp, "Fecha de citación tomada de la nómina")
         self.assertNotContains(resp, "Revisa la fecha de citación")
         self.bloque.refresh_from_db()
@@ -96,6 +96,42 @@ class AgendaDesactivadaTest(TestCase):
         self.assertIn(f"el día {futura}", texto)
         self.assertIn("a coordinar con el Juzgado", texto)
         self.assertContains(resp, "sin fecha de citación legible")
+
+    def test_fecha_con_hora_sin_segundos_y_celda_datetime(self):
+        from datetime import datetime
+        fut = date.today() + timedelta(days=20)
+        resp = self._subir("CITACION", citaciones=[f"{fut:%d/%m/%Y} 09:30", datetime(fut.year, fut.month, fut.day)])
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertEqual(texto.count(f"el día {fut:%d/%m/%Y}"), 2)
+        self.assertNotContains(resp, "Revisa la fecha de citación")
+
+    def test_fechas_distintas_en_una_patente_usa_la_mas_temprana_y_avisa(self):
+        a, b = date.today() + timedelta(days=20), date.today() + timedelta(days=22)
+        filas = [fila_nomina(pat="AAAA11", nro_parte=str(5000 + i), fecha="03/09/2026") for i in range(2)]
+        for f, c in zip(filas, (b, a)):
+            f["FECHA CITACIÓN"] = c.strftime("%d/%m/%Y")
+        resp = self.client.post("/subir/", {
+            "nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION",
+            "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+        }, follow=True)
+        self.assertIn(f"el día {a:%d/%m/%Y}", self._texto_de_las_cartas(GeneracionCartas.objects.get()))
+        self.assertContains(resp, "la carta usa la más temprana")
+
+    def test_ninguna_fecha_legible_no_dice_que_la_tomo_de_la_nomina(self):
+        resp = self._subir("CITACION", citaciones=["", ""])
+        self.assertContains(resp, "ninguna fecha de citación legible")
+        self.assertNotContains(resp, "tomada de la nómina")
+
+    def test_sentencia_no_muestra_avisos_de_citacion(self):
+        futura = (date.today() + timedelta(days=20)).strftime("%d/%m/%Y")
+        resp = self._subir("SENTENCIA", citaciones=[futura, futura])
+        self.assertNotContains(resp, "Revisa la fecha de citación")
+
+    @override_settings(JPLTAG_AGENDA_ACTIVA=True)
+    def test_agenda_activa_avisa_que_ignora_la_fecha_de_la_nomina(self):
+        futura = (date.today() + timedelta(days=20)).strftime("%d/%m/%Y")
+        resp = self._subir("CITACION", citaciones=[futura, futura])
+        self.assertContains(resp, "se ignoró la FECHA CITACIÓN de la nómina")
 
     def test_nomina_sin_columna_avisa(self):
         resp = self._subir("CITACION")

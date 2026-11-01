@@ -14,7 +14,6 @@ cada carta.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .columnas import ROL_MUNICIPAL
 
 # Las cartas llevan la fecha de Chile aunque el servidor ande en UTC.
 ZONA_CHILE = ZoneInfo("America/Santiago")
@@ -75,13 +74,8 @@ def clausula_audiencia(fecha_aud, hora_txt):
     return "en fecha y hora a coordinar con el Juzgado"
 
 
-def formatear_rol(rol_raw, anio):
-    """El ROL municipal de la nómina («3090675-MUN») va tal cual. Un folio de
-    proceso suelto sigue el formato «Folio_Proceso»-T-«Año_Proceso». Si no
-    hay ninguno, "PENDIENTE", para que quede clarísimo en la carta que ese
-    dato falta completar."""
-    if rol_raw and ROL_MUNICIPAL.search(rol_raw):
-        return rol_raw
-    if rol_raw:
-        return f"{rol_raw}-T-{anio}"
-    return "PENDIENTE"
+def formatear_rol(rol_raw):
+    """El ROL de la nómina («13Y95046/26») va tal cual. Si la causa no trae
+    ROL, "PENDIENTE", para que quede clarísimo en la carta que ese dato falta."""
+    rol = str(rol_raw or "").strip()
+    return rol or "PENDIENTE"

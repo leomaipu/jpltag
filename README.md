@@ -102,15 +102,14 @@ completas ("Parte 2 de 3: infracciones 13 a 24 de 26"), cada una con su
 firma. Con una plantilla propia más alta o más compacta, ajustar desde
 `/admin/`.
 
-**Rol:** la nómina de la DAF trae el ROL de cada causa en una columna sin
-encabezado, con valores como `3090675-MUN`. `motor/lectura.leer_nomina` la
-reconoce por su contenido (al menos el 95 % de sus valores terminan en
-`-MUN`; una columna cuyo encabezado ya es de otro dato, como el N° de parte,
-nunca se toma) y la carta lo imprime tal cual (`motor/cartas.formatear_rol`).
-Una causa cuyo valor no tiene esa forma sale `PENDIENTE`, y la pantalla de
-resultado avisa cuando falta la columna, cuando hay valores sin formato o
-cuando más de una columna podría serlo. `Reg N°` sigue en «folio carta trámite»
-mientras la nómina no lo traiga.
+**Rol:** el ROL de cada causa es el valor de la columna «ROL» de la nómina,
+con valores como `13Y95046/26` (juzgado + serie + folio / año), y la carta lo
+imprime tal cual (`motor/cartas.formatear_rol`). La columna se reconoce solo
+por su encabezado completo (`ROL`, `ROL CAUSA`, `CAUSA`, `FOLIO PROCESO`…): un
+patrón por subcadena tomaría `ROLMOP` como ROL. Una causa sin ROL sale
+`PENDIENTE`, y la pantalla de resultado avisa cuando falta la columna o hay
+filas vacías. `Reg N°` sigue en «folio carta trámite» mientras la nómina no
+lo traiga.
 
 **Agenda:** por ahora la generación de cartas no usa la agenda
 (`JPLTAG_AGENDA_ACTIVA`, apagada): no se toman cupos y toda citación,

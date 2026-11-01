@@ -67,13 +67,12 @@
 </section>
 {% endif %}
 
-{% if generacion.avisos.rol_municipal_no_encontrado or generacion.avisos.rol_municipal_sin_formato or generacion.avisos.rol_municipal_otras_columnas %}
+{% if generacion.avisos.rol_no_encontrado or generacion.avisos.rol_vacios %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa el ROL</span></h2>
   <ul class="lista">
-    {% if generacion.avisos.rol_municipal_no_encontrado %}<li>La nómina no trae la columna del ROL municipal (valores terminados en «-MUN»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
-    {% if generacion.avisos.rol_municipal_sin_formato %}<li>{{ generacion.avisos.rol_municipal_sin_formato }} valor{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"es" }} de la columna del ROL no termina{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"n" }} en «-MUN»: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
-    {% if generacion.avisos.rol_municipal_otras_columnas %}<li>Más de una columna parece traer el ROL; se usó la primera. Las otras: {{ generacion.avisos.rol_municipal_otras_columnas|join:", " }}.</li>{% endif %}
+    {% if generacion.avisos.rol_no_encontrado %}<li>La nómina no trae la columna «ROL»: en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_vacios %}<li>{{ generacion.avisos.rol_vacios }} fila{{ generacion.avisos.rol_vacios|pluralize }} de la nómina no trae{{ generacion.avisos.rol_vacios|pluralize:"n" }} ROL: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
   </ul>
 </section>
 {% endif %}

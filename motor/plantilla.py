@@ -222,7 +222,6 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
     else:
         fecha_aud, hora_aud = slot_audiencia
     hora_txt = f"{hora_aud} hrs." if hora_aud else ""
-    anio_actual = ahora_chile().year
     reg = info.get("reg_raw") or "«folio carta trámite»"
     utm_total = sum(c["monto"] for c in info["causas"])
 
@@ -274,7 +273,7 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
         "causas": [
             {
                 "nro_parte": c["nroParte"],
-                "rol": formatear_rol(c.get("rol_raw"), anio_actual),
+                "rol": formatear_rol(c.get("rol_raw")),
                 "fecha": c["fecha"],
                 "hora": c["hora"],
                 "lugar": c["lugar"],
@@ -513,7 +512,6 @@ class ErrorEnLote(Exception):
 def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
     """Filas del Excel de seguimiento de un lote: una por causa, con el N° de
     Carta de su patente (correlativo desde `primera_carta`)."""
-    anio_actual = ahora_chile().year
     return [
         {
             "Lote": num_lote,
@@ -521,7 +519,7 @@ def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
             "Tipo de carta": tipo_carta,
             "Patente": patente,
             "N° de Parte": causa["nroParte"],
-            "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
+            "Rol": formatear_rol(causa.get("rol_raw")),
         }
         for numero_carta, (patente, info) in enumerate(lote_patentes, primera_carta)
         for causa in info["causas"]

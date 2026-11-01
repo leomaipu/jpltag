@@ -88,9 +88,10 @@ class AgendaDesactivadaTest(TestCase):
     def test_el_panel_lo_dice(self):
         self.assertContains(self.client.get("/"), "Las cartas todavía no usan la agenda")
 
-    def test_sin_columna_del_rol_el_resultado_lo_avisa(self):
+    def test_sin_rol_en_la_nomina_el_resultado_lo_avisa(self):
+        # La nómina de prueba trae la columna «Rol», pero vacía.
         resp = self._subir("CITACION")
-        self.assertContains(resp, "La nómina no trae la columna del ROL municipal")
+        self.assertContains(resp, "2 filas de la nómina no traen ROL")
 
     @override_settings(JPLTAG_AGENDA_ACTIVA=True)
     def test_con_la_agenda_activa_vuelve_a_tomar_cupos(self):

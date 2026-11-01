@@ -38,8 +38,12 @@ class AgendaDesactivadaTest(TestCase):
             juzgado=self.j1, fecha=date.today() + timedelta(days=5), hora=time(9, 30), cupos_totales=5,
         )
 
-    def _subir(self, tipo):
+    def _subir(self, tipo, citaciones=None):
+        """`citaciones`: fechas de citación por fila (None = nómina sin esa columna)."""
         filas = [fila_nomina(pat=p, nro_parte=str(4000 + i), fecha="03/09/2026") for i, p in enumerate(("AAAA11", "BBBB22"))]
+        if citaciones is not None:
+            for f, c in zip(filas, citaciones):
+                f["FECHA CITACIÓN"] = c
         return self.client.post("/subir/", {
             "nomina": construir_nomina_xlsx(filas), "tipo_carta": tipo,
             "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
@@ -59,8 +63,44 @@ class AgendaDesactivadaTest(TestCase):
         self.assertEqual(self.bloque.cupos_usados, 0)
         self.assertIn("en fecha y hora a coordinar con el Juzgado", self._texto_de_las_cartas(corrida))
         self.assertNotIn(self.bloque.fecha.strftime("%d/%m/%Y"), self._texto_de_las_cartas(corrida))
-        self.assertContains(resp, "A coordinar con el Juzgado (agenda desactivada)")
+        self.assertContains(resp, "A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN)")
         self.assertNotContains(resp, "Patentes sin cupo de agenda")
+
+    def test_la_audiencia_sale_con_la_fecha_de_citacion_de_la_nomina(self):
+        futura = (date.today() + timedelta(days=20)).strftime("%d/%m/%Y")
+        resp = self._subir("CITACION", citaciones=[futura, futura])
+        corrida = GeneracionCartas.objects.get()
+        texto = self._texto_de_las_cartas(corrida)
+        self.assertIn(f"el día {futura}", texto)
+        self.assertNotIn("a coordinar", texto)
+        self.assertNotIn(" hrs", texto.split(futura)[1][:12])
+        self.assertContains(resp, "Fecha de citación tomada de la nómina")
+        self.assertNotContains(resp, "Revisa la fecha de citación")
+        self.bloque.refresh_from_db()
+        self.assertEqual(self.bloque.cupos_usados, 0)
+
+    def test_citacion_y_sentencia_tambien_usa_la_fecha_de_la_nomina(self):
+        futura = (date.today() + timedelta(days=20)).strftime("%d/%m/%Y")
+        self._subir("CITACION_SENTENCIA", citaciones=[futura, futura])
+        self.assertIn(f"el día {futura}", self._texto_de_las_cartas(GeneracionCartas.objects.get()))
+
+    def test_fecha_en_el_pasado_se_respeta_pero_avisa(self):
+        resp = self._subir("CITACION", citaciones=["24/08/2026", "24/08/2026"])
+        self.assertIn("el día 24/08/2026", self._texto_de_las_cartas(GeneracionCartas.objects.get()))
+        self.assertContains(resp, "fecha de citación anterior a hoy")
+
+    def test_fecha_vacia_sale_a_coordinar_y_avisa(self):
+        futura = (date.today() + timedelta(days=20)).strftime("%d/%m/%Y")
+        resp = self._subir("CITACION", citaciones=[futura, ""])
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertIn(f"el día {futura}", texto)
+        self.assertIn("a coordinar con el Juzgado", texto)
+        self.assertContains(resp, "sin fecha de citación legible")
+
+    def test_nomina_sin_columna_avisa(self):
+        resp = self._subir("CITACION")
+        self.assertContains(resp, "La nómina no trae una columna «FECHA CITACIÓN»")
+        self.assertContains(resp, "A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN)")
 
     def test_la_citacion_y_sentencia_tambien_se_genera_a_coordinar(self):
         self._subir("CITACION_SENTENCIA")

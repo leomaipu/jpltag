@@ -52,7 +52,19 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 # "MARCA, MODELO" — así lo escriben las cartas oficiales de los Juzgados.
                 "vehiculo": ", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")])) or "—",
                 "causas": [],
+                # Fechas de citación que trae la nómina (ISO), para elegir la de la carta.
+                "citaciones": [],
             }
+
+        cita_row = get_col(row, "FECHA_CITA")
+        if cita_row:
+            a_c, m_c, d_c = parsear_fecha(cita_row)
+            if a_c:
+                iso = f"{a_c:04d}-{m_c:02d}-{d_c:02d}"
+                if iso not in grupos[pat]["citaciones"]:
+                    grupos[pat]["citaciones"].append(iso)
+            else:
+                grupos[pat]["citacion_ilegible"] = True
 
         disposicion_row = get_col(row, "DISPOSICION") or "—"
         grupos[pat]["causas"].append({
@@ -71,6 +83,13 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 grupos[pat]["anio"] = anio
                 grupos[pat]["mes"] = mes
                 grupos[pat]["dia"] = dia
+
+    for g in grupos.values():
+        # Regla provisoria: con fechas distintas en una misma patente, la más
+        # temprana; el resultado avisa para que el juzgado decida (ver generacion).
+        if g["citaciones"]:
+            a_c, m_c, d_c = (int(x) for x in min(g["citaciones"]).split("-"))
+            g["citacion"] = f"{d_c:02d}/{m_c:02d}/{a_c:04d}"
 
     patentes_sin_causas = {pat: g for pat, g in grupos.items() if not g["causas"]}
     for pat in patentes_sin_causas:

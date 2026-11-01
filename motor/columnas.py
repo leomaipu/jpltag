@@ -24,6 +24,7 @@ MAPEO = {
     "PATENTE": ["patente"],
     "DIG_PAT": ["digito patente", "digito pate", "dígito patente"],
     "ROL": list(ENCABEZADOS_ROL),   # se busca por encabezado exacto (ver get_col)
+    "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion"],
     "REG": ["folio carta tramite", "reg n", "registro"],
     "RUT": ["cedula de identidad", "cedula", "rut"],
     "DV": ["digito verifcador", "digito verif", "dígito verif", "dv"],
@@ -40,6 +41,14 @@ MAPEO = {
 def _normalizar(encabezado):
     """Encabezado en minúscula, sin espacios de más (« Rol  » -> «rol»)."""
     return " ".join(str(encabezado).lower().split())
+
+
+def tiene_columna(df, clave):
+    """¿Alguna columna del DataFrame calza con los patrones de `clave`?"""
+    return any(
+        patron in str(col).lower().strip()
+        for patron in MAPEO.get(clave, []) for col in df.columns
+    )
 
 
 def columna_rol(df):

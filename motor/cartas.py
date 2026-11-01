@@ -14,6 +14,8 @@ cada carta.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from .columnas import parsear_fecha
+
 
 # Las cartas llevan la fecha de Chile aunque el servidor ande en UTC.
 ZONA_CHILE = ZoneInfo("America/Santiago")
@@ -67,10 +69,14 @@ def patente_completa(pat, dig_pat):
 
 
 def clausula_audiencia(fecha_aud, hora_txt):
-    """Evita dejar '...a las , bajo apercibimiento...' cuando no hay hora
-    asignada (caso SLOT_SIN_AGENDA)."""
-    if hora_txt:
-        return f"el día {fecha_aud}, a las {hora_txt}"
+    """La audiencia de la carta. Con fecha y hora (agenda): «el día X, a las
+    Y». Solo con fecha (la que fija el juzgado en SMC y viene en la nómina):
+    «el día X». Sin fecha, o con el marcador SLOT_SIN_AGENDA: «a coordinar»."""
+    fecha = str(fecha_aud or "").strip()
+    if fecha and parsear_fecha(fecha)[0]:
+        if hora_txt:
+            return f"el día {fecha}, a las {hora_txt}"
+        return f"el día {fecha}"
     return "en fecha y hora a coordinar con el Juzgado"
 
 

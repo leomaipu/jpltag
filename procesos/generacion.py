@@ -58,6 +58,8 @@ from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
+from motor.cartas import ahora_chile
+from motor.columnas import tiene_columna
 from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
 from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
@@ -548,10 +550,15 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             # La sentencia ya está dictada: no cita a ninguna audiencia. Con
             # la agenda apagada, toda citación sale «a coordinar». En ambos
             # casos no se asigna agenda ni se gastan cupos.
+            reserva = _Reserva()
             if tipo_carta != TipoCarta.SENTENCIA:
                 avisos["agenda_desactivada"] = True
+                # La fecha de citación la fija el Juzgado en SMC y viene en la
+                # nómina (sin hora): la carta la imprime tal cual.
+                reserva.slots, avisos_citacion = _citaciones_de_la_nomina(df_limpio, incluidos)
+                avisos.update(avisos_citacion)
             with transaction.atomic():
-                return _encolar(_Reserva())
+                return _encolar(reserva)
         _, corrida = reservar_agenda(
             juzgado, incluidos, _encolar,
             exigir_cupo_para_todas=(tipo_carta == TipoCarta.CITACION_SENTENCIA),
@@ -564,6 +571,35 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         # no quedó ningún cupo tomado.
         logger.exception("Falló la preparación de cartas (%s)", juzgado.slug)
         return _registrar_fallo(juzgado, usuario, solicitud, carpeta_rel, mensaje_para_personas(exc))
+
+
+def _citaciones_de_la_nomina(df, incluidos):
+    """{patente: (fecha, "")} con la FECHA CITACIÓN de la nómina, y los avisos
+    para que la persona revise. Una patente sin fecha sale «a coordinar»."""
+    slots, sin_fecha, distintas, pasadas = {}, [], [], []
+    hoy = ahora_chile().date()
+    for pat, g in incluidos.items():
+        if g.get("citacion"):
+            slots[pat] = (g["citacion"], "")
+            if len(g["citaciones"]) > 1:
+                distintas.append(pat)
+            if date.fromisoformat(min(g["citaciones"])) < hoy:
+                pasadas.append(pat)
+        else:
+            sin_fecha.append(pat)
+    avisos = {}
+    if not tiene_columna(df, "FECHA_CITA"):
+        avisos["citacion_sin_columna"] = True
+    if sin_fecha and tiene_columna(df, "FECHA_CITA"):
+        avisos["citacion_sin_fecha"] = len(sin_fecha)
+    if distintas:
+        avisos["citacion_fechas_distintas"] = len(distintas)
+    if pasadas:
+        avisos["citacion_en_el_pasado"] = len(pasadas)
+    ilegibles = sum(1 for g in incluidos.values() if g.get("citacion_ilegible"))
+    if ilegibles:
+        avisos["citacion_ilegible"] = ilegibles
+    return slots, avisos
 
 
 def _escribir_trabajo(carpeta_abs, incluidos, slots, solicitud):

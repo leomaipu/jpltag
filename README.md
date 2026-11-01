@@ -105,7 +105,7 @@ firma. Con una plantilla propia más alta o más compacta, ajustar desde
 **Rol:** el ROL de cada causa es el valor de la columna «ROL» de la nómina,
 con valores como `13Y95046/26` (juzgado + serie + folio / año), y la carta lo
 imprime tal cual (`motor/cartas.formatear_rol`). La columna se reconoce solo
-por su encabezado completo (`ROL`, `ROL CAUSA`, `CAUSA`, `FOLIO PROCESO`…): un
+por su encabezado completo (`ROL`, `ROL CAUSA`, `N° ROL`…; `CAUSA` sola no se toma, porque puede ser la descripción): un
 patrón por subcadena tomaría `ROLMOP` como ROL. Una causa sin ROL sale
 `PENDIENTE`, y la pantalla de resultado avisa cuando falta la columna o hay
 filas vacías. `Reg N°` sigue en «folio carta trámite» mientras la nómina no

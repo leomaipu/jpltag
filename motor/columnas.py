@@ -13,7 +13,7 @@ import pandas as pd
 # El ROL de la causa se lee de la columna «ROL» de la nómina y se imprime tal
 # cual (p. ej. «13Y95046/26»). Esa columna se reconoce SOLO por su encabezado
 # completo: un patrón por subcadena tomaría «ROLMOP» o «Control» como ROL.
-ENCABEZADOS_ROL = ("rol", "rol causa", "n° rol", "nro rol", "causa", "folio proceso", "folio_proceso")
+ENCABEZADOS_ROL = ("rol", "rol causa", "rol_causa", "n° rol", "nº rol", "n.º rol", "nro rol")
 
 MAPEO = {
     "NRO_PARTE": ["número de parte", "nro parte", "numero de parte"],

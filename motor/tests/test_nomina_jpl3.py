@@ -79,9 +79,15 @@ class NominaJpl3Test(unittest.TestCase):
         self.assertEqual([c["rol"] for c in ctx["causas"]], ["13Y95046/26", "13Y97421/26"])
 
     def test_rolmop_no_reemplaza_al_rol(self):
-        df = self.df.rename(columns={"ROL": "ROLMOP"})
-        self.assertIsNone(columna_rol(df))
-        self.assertEqual(formatear_rol(""), "PENDIENTE")
+        buffer = io.BytesIO()
+        self.df.rename(columns={"ROL": "ROLMOP"}).to_excel(buffer, index=False)
+        buffer.seek(0)
+        leida = leer_nomina(buffer)
+        self.assertIsNone(columna_rol(leida))
+        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_no_encontrado": True})
+        limpio, _ = detectar_duplicados(leida)
+        grupos, _, _ = construir_grupos(limpio, [], utm_multa_defecto=1)
+        self.assertEqual(formatear_rol(grupos["JKDX72"]["causas"][0]["rol_raw"]), "PENDIENTE")
 
 
 class LimpiezaDeCeldasTest(unittest.TestCase):

@@ -71,7 +71,7 @@
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa el ROL</span></h2>
   <ul class="lista">
-    {% if generacion.avisos.rol_no_encontrado %}<li>La nómina no trae la columna «ROL»: en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_no_encontrado %}<li>La nómina no trae una columna con encabezado «ROL» (también se acepta «ROL CAUSA» o «N° ROL»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
     {% if generacion.avisos.rol_vacios %}<li>{{ generacion.avisos.rol_vacios }} fila{{ generacion.avisos.rol_vacios|pluralize }} de la nómina no trae{{ generacion.avisos.rol_vacios|pluralize:"n" }} ROL: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
   </ul>
 </section>

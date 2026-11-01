@@ -64,7 +64,7 @@ class RolDeLaNominaTest(unittest.TestCase):
         self.assertEqual(formatear_rol(None), "PENDIENTE")
 
     def test_el_encabezado_se_reconoce_sin_importar_mayusculas_ni_espacios(self):
-        for encabezado in ("Rol", " rol ", "ROL", "Rol causa", "CAUSA"):
+        for encabezado in ("Rol", " rol ", "ROL", "Rol causa", "N° ROL", "Nº Rol"):
             df = _con_rol(["13Y1/26"], encabezado)
             self.assertEqual(columna_rol(df), encabezado)
 
@@ -74,6 +74,11 @@ class RolDeLaNominaTest(unittest.TestCase):
         self.assertIsNone(columna_rol(df))
         grupos, _, _ = construir_grupos(leer_nomina(_nomina_xlsx(df)), [], utm_multa_defecto=1)
         self.assertEqual(grupos["AAAA10"]["causas"][0]["rol_raw"], "")
+
+    def test_causa_sola_no_se_toma_como_rol(self):
+        # «CAUSA» puede ser el tipo o la descripción de la causa: no se adivina
+        df = _con_rol(["Infraccion al Art. 114"], "CAUSA")
+        self.assertIsNone(columna_rol(df))
 
     def test_el_n_de_parte_y_la_descripcion_no_se_toman_como_rol(self):
         df = pd.DataFrame([fila(nro_parte="1255846-M78")]).drop(columns=["Rol"])

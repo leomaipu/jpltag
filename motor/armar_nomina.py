@@ -85,7 +85,8 @@ def _col(df, nombre):
 
 
 def _fecha(valor):
-    """datetime/«dd/mm/aaaa»/«aaaa-mm-dd»/«m/d/aaaa hh:mm:ss AM» → date o None."""
+    """datetime/«dd/mm/aaaa»/«aaaa-mm-dd» → date o None. Cualquier otro formato
+    (p. ej. m/d/aaaa) es ambiguo: no se adivina, queda sin fecha y se alerta."""
     if isinstance(valor, datetime):
         return valor.date()
     if isinstance(valor, date):
@@ -136,6 +137,12 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
 
     n_ing, n_cau = len(ing), len(cau)
 
+    # 0. Sin N° de parte no hay llave de cruce.
+    en_blanco = ing["NRO PARTE"] == ""
+    excluir(ing[en_blanco], "Sin N° de parte en Ingresos diarios")
+    ing = ing[~en_blanco]
+    cau = cau[cau["parte"] != ""]
+
     # 1. Partes repetidos: como en el motor, se excluyen todas las copias.
     rep_ing = ing["NRO PARTE"].duplicated(keep=False) & (ing["NRO PARTE"] != "")
     excluir(ing[rep_ing], "N° de parte repetido en Ingresos diarios")
@@ -181,9 +188,9 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     for i in m.index[m["direccion"] == ""]:
         k = m.at[i, "_rutk"]
         if k in por_rut.index:
+            # Dirección y comuna van juntas: nunca una comuna con la calle de otra.
             m.at[i, "direccion"] = por_rut.at[k, "direccion"]
-            if m.at[i, "comuna"] == "":
-                m.at[i, "comuna"] = por_rut.at[k, "comuna"]
+            m.at[i, "comuna"] = por_rut.at[k, "comuna"]
             completadas += 1
     m = m.reset_index(drop=True)
 
@@ -237,6 +244,9 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     sin_dom = nomina[nomina["domicilio_infractor"] == ""]
     sin_com = nomina[nomina["comuna_infractor"] == ""]
     fi = nomina["FECHA INFRACCIÓN"]
+    n_ilegibles = int(sum(1 for d in fi if not isinstance(d, date)))
+    if n_ilegibles:
+        informe.alertas.append(("Alta", f"{n_ilegibles} filas con FECHA INFRACCIÓN ilegible: el motor no puede asignarlas a un juzgado."))
     meses = pd.Series([f"{d.year}-{d.month:02d}" for d in fi if isinstance(d, date)]).value_counts()
     dias = pd.Series([("1–10" if d.day <= 10 else "11–20" if d.day <= 20 else "21–31")
                       for d in fi if isinstance(d, date)]).value_counts()
@@ -266,7 +276,6 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
         "Causas del listado por estado que no entran (otro estado o sin ingreso)": len(fallada) + len(pend_sin_ing),
         "Fecha de citación reemplazada por bloque de folios": (len(nomina) - fuera_de_bloque) if citaciones_por_bloque else 0,
     }
-    informe.alertas = []
     if pas:
         informe.alertas.append(("Alta", f"{pas} filas con FECHA CITACIÓN anterior a hoy "
                                 f"({', '.join(sorted({d.strftime('%d/%m/%Y') for d in nomina['FECHA CITACIÓN'] if isinstance(d, date) and d < hoy}))}): "

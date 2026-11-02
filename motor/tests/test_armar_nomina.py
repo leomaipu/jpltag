@@ -97,6 +97,42 @@ class ArmarNominaTest(unittest.TestCase):
         self.assertEqual(inf.resumen["Domicilios completados desde otra causa del mismo RUT"], 1)
         self.assertFalse(any("sin domicilio" in t for _, t in inf.alertas))
 
+    def test_comuna_siempre_con_su_direccion(self):
+        nom, _ = self._armar([ing_fila(1), ing_fila(2, patente="BBBB22")],
+                             [cau_fila(1, dir_=None, comuna="LAS CONDES"), cau_fila(2, comuna="MAIPU")])
+        self.assertEqual((nom.iloc[0]["domicilio_infractor"], nom.iloc[0]["comuna_infractor"]), ("CALLE 1", "MAIPU"))
+
+    def test_partes_en_blanco_se_excluyen_con_motivo(self):
+        nom, inf = self._armar([ing_fila(1, parte=" "), ing_fila(2, parte=" ")],
+                               [cau_fila(1, parte=" "), cau_fila(2, parte=" ")])
+        self.assertEqual(len(nom), 0)
+        self.assertEqual(list(inf.excluidas["Motivo"]), ["Sin N° de parte en Ingresos diarios"] * 2)
+
+    def test_alertas_de_causas_que_no_entran(self):
+        _, inf = self._armar([ing_fila(1)], [cau_fila(1), cau_fila(2), cau_fila(3, estado="FALLADA")])
+        textos = " | ".join(t for _, t in inf.alertas)
+        self.assertIn("PENDIENTES del listado por estado no están en Ingresos diarios", textos)
+        self.assertIn("FALLADA", textos)
+        self.assertEqual(len(inf.revisar["Pendientes sin ingreso"]), 1)
+
+    def test_fecha_de_infraccion_en_formato_mm_dd_queda_ilegible(self):
+        nom, inf = self._armar([ing_fila(1, fecha_inf="04/25/2026"), ing_fila(2, fecha_inf="06/04/2026")],
+                               [cau_fila(1), cau_fila(2)])
+        self.assertEqual(nom.iloc[1]["FECHA INFRACCIÓN"], date(2026, 4, 6))
+        self.assertTrue(any("FECHA INFRACCIÓN ilegible" in t for _, t in inf.alertas))
+
+    def test_alertas_de_mes_y_dias(self):
+        _, inf = self._armar([ing_fila(1), ing_fila(2, fecha_inf=datetime(2026, 5, 15))], [cau_fila(1), cau_fila(2)])
+        textos = " | ".join(t for _, t in inf.alertas)
+        self.assertIn("más de un mes", textos)
+        self.assertNotIn("Todas las fechas de infracción caen", textos)
+        _, inf = self._armar([ing_fila(1)], [cau_fila(1)])
+        self.assertIn("Todas las fechas de infracción caen en los días 1–10", " | ".join(t for _, t in inf.alertas))
+
+    def test_estado_en_minuscula_y_con_espacios(self):
+        nom, _ = self._armar([ing_fila(1, estado="  pendiente ")], [cau_fila(1, estado="Pendiente")])
+        self.assertEqual(len(nom), 1)
+
     def test_sin_domicilio_se_mantiene_y_se_alerta(self):
         nom, inf = self._armar([ing_fila(1)], [cau_fila(1, dir_=None)])
         self.assertEqual(len(nom), 1)

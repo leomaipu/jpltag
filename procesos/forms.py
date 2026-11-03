@@ -188,6 +188,31 @@ class SubirNominaForm(forms.Form):
         return self._validar_excel(self.cleaned_data.get("tipo_causas"))
 
 
+class ArmarNominaForm(forms.Form):
+    """Los dos reportes de SMC con los que se arma la nómina."""
+
+    ingresos = forms.FileField(
+        label="Listado de ingresos diarios (.xlsx)",
+        error_messages={"required": "Elige el Excel del Listado de ingresos diarios."},
+    )
+    causas = forms.FileField(
+        label="Listado de causas por estado (.xlsx)",
+        error_messages={"required": "Elige el Excel del Listado de causas por estado."},
+    )
+
+    def _excel(self, campo):
+        archivo = self.cleaned_data.get(campo)
+        if archivo and not archivo.name.lower().endswith((".xlsx", ".xls")):
+            raise forms.ValidationError("El archivo debe ser un Excel (.xlsx).")
+        return archivo
+
+    def clean_ingresos(self):
+        return self._excel("ingresos")
+
+    def clean_causas(self):
+        return self._excel("causas")
+
+
 class PlantillaJuzgadoForm(forms.ModelForm):
     """Módulo 1 (plantillas Word, una por tipo de carta) + Módulo 2
     (logo/sello/firma) en una sola pantalla: ambos son parte de la

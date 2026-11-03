@@ -66,6 +66,15 @@
   {% include "procesos/_errores.html" with archivo_aviso=True %}
 
   <div class="pasos">
+    {% if form.nomina_guardada.value %}
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Nómina del mes<small>Armada con «Arma tu nómina».</small></h2>
+      {{ form.nomina_guardada }}
+      <p><span class="estado">Lista para usar</span></p>
+      <p class="campo__ayuda">Se usará la nómina que acabas de armar: no hace falta subir ningún Excel. Si prefieres otra, <a href="{% url 'procesos:subir_nomina' %}?juzgado={{ juzgado.slug }}">elige un Excel</a>.</p>
+      {{ form.nomina.errors }}
+    </section>
+    {% else %}
     <section class="paso bloque">
       <h2 class="seccion__titulo">Nómina del mes<small>El Excel que entrega la DAF, con todas las infracciones.</small></h2>
       <div class="campo">
@@ -80,6 +89,8 @@
         {{ form.nomina.errors }}
       </div>
     </section>
+
+    {% endif %}
 
     <section class="paso bloque">
       <h2 class="seccion__titulo" id="tipo-titulo">Tipo de carta<small>Cada tipo usa la plantilla Word de este juzgado.</small></h2>

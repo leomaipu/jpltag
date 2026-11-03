@@ -196,6 +196,13 @@ class ArmarNominaView(PuedeGenerarCartasMixin, View):
         perfil, juzgado = self._juzgado(request)
         if juzgado is None:
             return redirect("procesos:panel")
+        token = request.GET.get("nomina")
+        if token:
+            resultado = armado.cargar_resultado(token, juzgado, request.user)
+            if resultado is None:
+                messages.error(request, "Esa nómina ya no está disponible: vuelve a armarla.")
+            else:
+                return self._pantalla(request, perfil, juzgado, ArmarNominaForm(), resultado=resultado)
         return self._pantalla(request, perfil, juzgado, ArmarNominaForm())
 
     def post(self, request):
@@ -206,11 +213,12 @@ class ArmarNominaView(PuedeGenerarCartasMixin, View):
         if not form.is_valid():
             return self._pantalla(request, perfil, juzgado, form)
         try:
-            resultado = armado.armar(juzgado, request.user, form.cleaned_data["ingresos"], form.cleaned_data["causas"])
+            token = armado.armar(juzgado, request.user, form.cleaned_data["ingresos"], form.cleaned_data["causas"])
         except armado.ErrorArmado as exc:
             form.add_error(None, str(exc))
             return self._pantalla(request, perfil, juzgado, form)
-        return self._pantalla(request, perfil, juzgado, ArmarNominaForm(), resultado=resultado)
+        # Post/Redirect/Get: refrescar la página no vuelve a armar (ni a guardar) la nómina.
+        return redirect(f"{reverse('procesos:armar_nomina')}?juzgado={juzgado.slug}&nomina={token}")
 
 
 class DescargarNominaArmadaView(PuedeGenerarCartasMixin, View):

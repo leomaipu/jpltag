@@ -188,22 +188,29 @@ class SubirNominaForm(forms.Form):
         return self._validar_excel(self.cleaned_data.get("tipo_causas"))
 
 
+TOPE_REPORTE_MB = 30
+
+
 class ArmarNominaForm(forms.Form):
     """Los dos reportes de SMC con los que se arma la nómina."""
 
     ingresos = forms.FileField(
         label="Listado de ingresos diarios (.xlsx)",
+        widget=forms.ClearableFileInput(attrs={"accept": ".xlsx"}),
         error_messages={"required": "Elige el Excel del Listado de ingresos diarios."},
     )
     causas = forms.FileField(
         label="Listado de causas por estado (.xlsx)",
+        widget=forms.ClearableFileInput(attrs={"accept": ".xlsx"}),
         error_messages={"required": "Elige el Excel del Listado de causas por estado."},
     )
 
     def _excel(self, campo):
         archivo = self.cleaned_data.get(campo)
-        if archivo and not archivo.name.lower().endswith((".xlsx", ".xls")):
-            raise forms.ValidationError("El archivo debe ser un Excel (.xlsx).")
+        if archivo and not archivo.name.lower().endswith(".xlsx"):
+            raise forms.ValidationError("El archivo debe ser un Excel (.xlsx). Si es .xls, ábrelo y guárdalo como .xlsx.")
+        if archivo and archivo.size > TOPE_REPORTE_MB * 1024 * 1024:
+            raise forms.ValidationError(f"El archivo pesa más de {TOPE_REPORTE_MB} MB: no parece el reporte de SMC.")
         return archivo
 
     def clean_ingresos(self):

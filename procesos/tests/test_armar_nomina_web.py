@@ -23,8 +23,12 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def excel(filas, nombre="r.xlsx"):
+    from motor.armar_nomina import _todo_como_texto
     buf = io.BytesIO()
-    pd.DataFrame(filas).to_excel(buf, index=False)
+    # Como los reportes reales de SMC: el texto que empieza con «=» es texto, no fórmula.
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        pd.DataFrame(filas).to_excel(w, index=False)
+        _todo_como_texto(w.book)
     return SimpleUploadedFile(nombre, buf.getvalue(), content_type=XLSX)
 
 
@@ -51,7 +55,7 @@ class ArmarNominaWebTest(TestCase):
     def _armar(self, ing=None, cau=None, **extra):
         if ing is None:
             ing, cau = self._reportes()
-        return self.client.post(self.url, {"ingresos": excel(ing), "causas": excel(cau), **extra})
+        return self.client.post(self.url, {"ingresos": excel(ing), "causas": excel(cau), **extra}, follow=True)
 
     def _token(self, resp):
         return resp.context["resultado"]["token"]
@@ -86,7 +90,7 @@ class ArmarNominaWebTest(TestCase):
         from django.core import signing
         from procesos.generacion import _SAL_NOMINA_GUARDADA
         carpeta = Path(_TMP) / signing.loads(self._token(self._armar()), salt=_SAL_NOMINA_GUARDADA)["c"]
-        self.assertEqual({p.name for p in carpeta.iterdir()}, {"nomina_original.xlsx", "Informe_consolidacion.xlsx"})
+        self.assertEqual({p.name for p in carpeta.iterdir()}, {"nomina_original.xlsx", "Informe_consolidacion.xlsx", "resultado.json"})
 
     def test_archivos_cambiados_de_lugar_explican_que_falta(self):
         ing, cau = self._reportes()
@@ -97,8 +101,9 @@ class ArmarNominaWebTest(TestCase):
 
     def test_archivo_que_no_es_excel(self):
         ing, cau = self._reportes()
-        resp = self.client.post(self.url, {"ingresos": SimpleUploadedFile("a.csv", b"x"), "causas": excel(cau)})
-        self.assertContains(resp, "debe ser un Excel")
+        for nombre in ("a.csv", "a.xls"):
+            resp = self.client.post(self.url, {"ingresos": SimpleUploadedFile(nombre, b"x"), "causas": excel(cau)})
+            self.assertContains(resp, "debe ser un Excel")
 
     def test_falta_un_reporte(self):
         resp = self.client.post(self.url, {"ingresos": excel(self._reportes()[0])})
@@ -165,6 +170,45 @@ class ArmarNominaWebTest(TestCase):
         crear_usuario("adm", rol=Rol.ADMINISTRADOR)
         self.client.logout()
         ingresar(self.client, "adm")
-        token = self._token(self.client.post(self.url + "?juzgado=jpl1", {"juzgado": "jpl1", "ingresos": excel(self._reportes()[0]), "causas": excel(self._reportes()[1])}))
+        token = self._token(self.client.post(self.url + "?juzgado=jpl1", {"juzgado": "jpl1", "ingresos": excel(self._reportes()[0]), "causas": excel(self._reportes()[1])}, follow=True))
         resp = self.client.get(reverse("procesos:subir_nomina") + f"?juzgado=jpl2&nomina_armada={token}", follow=True)
+        self.assertNotContains(resp, "Lista para usar")
+
+    def test_actualizar_la_pagina_no_arma_otra_nomina(self):
+        resp = self._armar()
+        self.assertEqual(len(resp.redirect_chain), 1)
+        carpetas = len(list((Path(_TMP) / "jpl1").glob("*")))
+        self.client.get(resp.redirect_chain[0][0])
+        self.client.get(resp.redirect_chain[0][0])
+        self.assertEqual(len(list((Path(_TMP) / "jpl1").glob("*"))), carpetas)
+        self.assertContains(self.client.get(resp.redirect_chain[0][0]), "Generar cartas con esta nómina")
+
+    def test_resultado_con_token_ajeno_o_vencido_avisa(self):
+        resp = self.client.get(self.url + "?juzgado=jpl1&nomina=basura", follow=True)
+        self.assertContains(resp, "ya no está disponible")
+
+    def test_texto_que_empieza_con_igual_no_se_vuelve_formula(self):
+        from openpyxl import load_workbook
+        ing, cau = self._reportes(1)
+        ing[0]["PLACA"] = " =1+1_x000D_"
+        cau[0]["nombre"] = "=HYPERLINK(\"http://x\",\"A\")"
+        cau[0]["direccion"] = "=cmd|' /C calc'!A0"
+        resp = self._armar(ing, cau)
+        for que in ("nomina", "informe"):
+            d = self.client.get(reverse("procesos:descargar_nomina_armada", args=[que, self._token(resp)]) + "?juzgado=jpl1")
+            wb = load_workbook(io.BytesIO(b"".join(d.streaming_content)))
+            tipos = {c.data_type for ws in wb for fila in ws.iter_rows() for c in fila if isinstance(c.value, str) and c.value.startswith("=")}
+            self.assertLessEqual(tipos, {"s"}, que)
+        df = pd.read_excel(io.BytesIO(b"".join(self.client.get(reverse("procesos:descargar_nomina_armada", args=["nomina", self._token(resp)]) + "?juzgado=jpl1").streaming_content)), dtype=object)
+        self.assertEqual(df.iloc[0]["patente"], "=1+1")
+        self.assertTrue(str(df.iloc[0]["nombre_infractor"]).startswith("=HYPERLINK"))
+
+    def test_nomina_armada_vencida_en_el_post_no_dice_lista_para_usar(self):
+        token = self._token(self._armar())
+        shutil.rmtree(Path(_TMP) / __import__("json").loads(__import__("base64").urlsafe_b64decode(token.split(":")[0] + "=="))["c"])
+        resp = self.client.post(reverse("procesos:subir_nomina"), {
+            "juzgado": "jpl1", "nomina_guardada": token, "tipo_carta": "CITACION", "nombre_firmante": "Ana",
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
+        })
+        self.assertContains(resp, "ya no está disponible")
         self.assertNotContains(resp, "Lista para usar")

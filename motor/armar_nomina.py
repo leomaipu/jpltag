@@ -336,6 +336,9 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     return nomina, informe
 
 
+from .excel_seguro import todo_como_texto as _todo_como_texto  # noqa: E402
+
+
 def escribir_nomina(nomina, ruta):
     """Nómina en .xlsx lista para el motor: una sola hoja, fechas como fechas."""
     with pd.ExcelWriter(ruta, engine="openpyxl", datetime_format="DD/MM/YYYY", date_format="DD/MM/YYYY") as w:
@@ -345,6 +348,7 @@ def escribir_nomina(nomina, ruta):
         for col in ws.columns:
             ancho = max(len(str(c.value)) if c.value is not None else 0 for c in list(col)[:200])
             ws.column_dimensions[col[0].column_letter].width = min(max(ancho + 2, 12), 60)
+        _todo_como_texto(w.book)
 
 
 def escribir_informe(informe, ruta):
@@ -354,6 +358,7 @@ def escribir_informe(informe, ruta):
         informe.excluidas.to_excel(w, index=False, sheet_name="Excluidas")
         for nombre, df in informe.revisar.items():
             df.to_excel(w, index=False, sheet_name=nombre[:31])
+        _todo_como_texto(w.book)
         for ws in w.book.worksheets:
             ws.freeze_panes = "A2"
             for col in ws.columns:

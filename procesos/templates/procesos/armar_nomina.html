@@ -1,0 +1,107 @@
+{% extends "procesos/base.html" %}
+{% load static %}
+{% block titulo %}Arma tu nómina{% endblock %}
+{% block marca %}Nómina{% endblock %}
+{% block contenido %}
+<header class="cab">
+  <h1>Arma tu nómina</h1>
+  <p>{{ juzgado.nombre }}. Cruza los dos reportes de SMC y deja la nómina lista para generar las cartas.</p>
+  <div class="tribarra"><i></i></div>
+</header>
+
+{% if juzgados|length > 1 %}
+<form method="get" class="selector">
+  <div class="campo">
+    <label for="juzgado">Juzgado</label>
+    <select name="juzgado" id="juzgado" data-autoenviar>
+      {% for j in juzgados %}<option value="{{ j.slug }}" {% if j == juzgado %}selected{% endif %}>{{ j.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Cambiar</button>
+</form>
+{% endif %}
+
+{% if resultado %}
+<section class="bloque" aria-labelledby="res-titulo">
+  <div class="resumen">
+    <div>
+      <h2 id="res-titulo" class="solo-lectores">Nómina armada</h2>
+      <p class="resumen__cifra">{{ resultado.n_patentes }}</p>
+      <p>patente{{ resultado.n_patentes|pluralize }} con causas pendientes ({{ resultado.n_filas }} causa{{ resultado.n_filas|pluralize }})</p>
+      <p class="mt"><span class="estado">Nómina lista</span>{% if resultado.n_excluidas %} <span class="estado estado--aviso">{{ resultado.n_excluidas }} fila{{ resultado.n_excluidas|pluralize }} excluida{{ resultado.n_excluidas|pluralize }}</span>{% endif %}</p>
+    </div>
+    <dl class="datos">
+      {% for concepto, valor in resultado.resumen %}<div><dt>{{ concepto }}</dt><dd>{{ valor }}</dd></div>{% endfor %}
+    </dl>
+  </div>
+  <div class="acciones mt">
+    <a class="btn btn--primario" href="{% url 'procesos:subir_nomina' %}?juzgado={{ juzgado.slug }}&amp;nomina_armada={{ resultado.token|urlencode }}">Generar cartas con esta nómina</a>
+    <a class="btn" href="{% url 'procesos:descargar_nomina_armada' 'nomina' resultado.token %}?juzgado={{ juzgado.slug }}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>Descargar la nómina</a>
+    <a class="btn" href="{% url 'procesos:descargar_nomina_armada' 'informe' resultado.token %}?juzgado={{ juzgado.slug }}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>Descargar el informe</a>
+  </div>
+  <p class="campo__ayuda mt">La nómina queda guardada 12 horas para generar las cartas; si no se usa, se borra porque trae datos personales. Al generar las cartas, la nómina y el informe quedan guardados con la generación. El informe lista cada fila excluida con su motivo.</p>
+</section>
+
+{% if resultado.alertas %}
+<section class="bloque" aria-labelledby="alertas-titulo">
+  <h2 id="alertas-titulo" class="seccion__titulo">Revisa antes de generar<small>Avisos del cruce</small></h2>
+  <ul class="lista">
+    {% for severidad, texto in resultado.alertas %}
+    <li class="fila">
+      <span class="fila__titulo"><span class="estado {% if severidad == 'Alta' %}estado--error{% elif severidad == 'Info' %}{% else %}estado--aviso{% endif %}">{{ severidad }}</span></span>
+      <span class="fila__meta">{{ texto }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+<p class="mt"><a href="{% url 'procesos:armar_nomina' %}?juzgado={{ juzgado.slug }}">Armar otra nómina</a></p>
+
+{% else %}
+<form method="post" enctype="multipart/form-data" class="formulario-ancho" data-procesa novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
+  {% include "procesos/_errores.html" with archivo_aviso=True %}
+
+  <div class="pasos">
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Listado de ingresos diarios<small>El reporte de SMC con las causas del período y sus patentes.</small></h2>
+      <div class="campo">
+        <div class="soltar">
+          <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#subir"/></svg>
+          <span class="soltar__titulo" data-inicial="Arrastra el Excel aquí o elígelo desde tu equipo">Arrastra el Excel aquí o elígelo desde tu equipo</span>
+          <span class="soltar__nombre" hidden></span>
+          <label class="solo-lectores" for="{{ form.ingresos.id_for_label }}">{{ form.ingresos.label }}</label>
+          {{ form.ingresos }}
+        </div>
+        {{ form.ingresos.errors }}
+      </div>
+    </section>
+
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Listado de causas por estado<small>El reporte de SMC con el nombre, RUT y domicilio de cada infractor.</small></h2>
+      <div class="campo">
+        <div class="soltar">
+          <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#subir"/></svg>
+          <span class="soltar__titulo" data-inicial="Arrastra el Excel aquí o elígelo desde tu equipo">Arrastra el Excel aquí o elígelo desde tu equipo</span>
+          <span class="soltar__nombre" hidden></span>
+          <label class="solo-lectores" for="{{ form.causas.id_for_label }}">{{ form.causas.label }}</label>
+          {{ form.causas }}
+        </div>
+        <span class="campo__ayuda" id="ayuda-causas">Se cruzan por N° de parte. Solo se toman las causas PENDIENTES; lo que no se pueda cruzar queda en el informe con su motivo.</span>
+        {{ form.causas.errors }}
+      </div>
+    </section>
+  </div>
+
+  <div class="procesando bloque" role="status" tabindex="-1">
+    <h2>Armando la nómina</h2>
+    <p class="texto-suave">Se cruzan los dos reportes. Con un mes completo toma cerca de diez segundos.</p>
+    <div class="barra-espera" aria-hidden="true"></div>
+  </div>
+  <div class="acciones acciones--fija">
+    <button type="submit" class="btn btn--primario">Armar la nómina</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

@@ -7,6 +7,8 @@ en ninguna carta (y por qué). Porteado de generar_notificaciones_JPL1.py.
 
 import csv
 
+from .excel_seguro import df_a_xlsx
+
 
 def exportar_duplicados(base, df_duplicados):
     """Exporta a un Excel aparte las filas con N° de parte duplicado (ya
@@ -17,7 +19,7 @@ def exportar_duplicados(base, df_duplicados):
     if df_duplicados is None or len(df_duplicados) == 0:
         return None
     nombre_archivo = f"{base}_duplicados_reporte.xlsx"
-    df_duplicados.to_excel(nombre_archivo, index=False)
+    df_a_xlsx(df_duplicados, nombre_archivo)
     return nombre_archivo
 
 

@@ -27,8 +27,8 @@ from motor.plantilla import ruta_plantilla_defecto
 from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
 from nucleo.models import BloqueAjuste, BloqueHorario, Juzgado, TipoCarta, ahora_local
 
-from . import generacion
-from .forms import CUPOS_MAXIMOS, BloqueEditarForm, BloqueHorarioForm, BloqueSerieForm, IngresarForm, PlantillaJuzgadoForm, SubirNominaForm
+from . import armado, generacion
+from .forms import CUPOS_MAXIMOS, ArmarNominaForm, BloqueEditarForm, BloqueHorarioForm, BloqueSerieForm, IngresarForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
 from .permisos import (
     PerfilRequeridoMixin,
@@ -113,6 +113,13 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
         if juzgado is None:
             messages.error(request, "No tienes ningún juzgado asignado o no hay ninguno configurado todavía.")
             return redirect("procesos:panel")
+        token = request.GET.get("nomina_armada")
+        if token:
+            guardada = generacion.leer_nomina_guardada(token, juzgado, request.user)
+            if guardada is None:
+                messages.error(request, "La nómina armada ya no está disponible: vuelve a armarla o elige un Excel.")
+            else:
+                return self._pantalla(request, perfil, juzgado, SubirNominaForm(initial={"nomina_guardada": token}))
         return self._pantalla(request, perfil, juzgado, SubirNominaForm())
 
     def post(self, request):
@@ -166,6 +173,62 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
                 "faltan": exc.n_total - exc.n_repetidas if repetido else None,
             })
         return redirect("procesos:resultado", pk=corrida.pk)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Arma tu nómina: de los dos reportes de SMC a la nómina de las cartas
+# ══════════════════════════════════════════════════════════════════════
+
+class ArmarNominaView(PuedeGenerarCartasMixin, View):
+    def _pantalla(self, request, perfil, juzgado, form, *, resultado=None):
+        return render(request, "procesos/armar_nomina.html", {
+            "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil), "resultado": resultado,
+        })
+
+    def _juzgado(self, request):
+        perfil = request.user.perfil
+        juzgado = _juzgado_actual(request, perfil)
+        if juzgado is None:
+            messages.error(request, "No tienes ningún juzgado asignado o no hay ninguno configurado todavía.")
+        return perfil, juzgado
+
+    def get(self, request):
+        perfil, juzgado = self._juzgado(request)
+        if juzgado is None:
+            return redirect("procesos:panel")
+        token = request.GET.get("nomina")
+        if token:
+            resultado = armado.cargar_resultado(token, juzgado, request.user)
+            if resultado is None:
+                messages.error(request, "Esa nómina ya no está disponible: vuelve a armarla.")
+            else:
+                return self._pantalla(request, perfil, juzgado, ArmarNominaForm(), resultado=resultado)
+        return self._pantalla(request, perfil, juzgado, ArmarNominaForm())
+
+    def post(self, request):
+        perfil, juzgado = self._juzgado(request)
+        if juzgado is None:
+            return redirect("procesos:panel")
+        form = ArmarNominaForm(request.POST, request.FILES)
+        if not form.is_valid():
+            return self._pantalla(request, perfil, juzgado, form)
+        try:
+            token = armado.armar(juzgado, request.user, form.cleaned_data["ingresos"], form.cleaned_data["causas"])
+        except armado.ErrorArmado as exc:
+            form.add_error(None, str(exc))
+            return self._pantalla(request, perfil, juzgado, form)
+        # Post/Redirect/Get: refrescar la página no vuelve a armar (ni a guardar) la nómina.
+        return redirect(f"{reverse('procesos:armar_nomina')}?juzgado={juzgado.slug}&nomina={token}")
+
+
+class DescargarNominaArmadaView(PuedeGenerarCartasMixin, View):
+    def get(self, request, que, token):
+        juzgado = _juzgado_actual(request, request.user.perfil)
+        encontrado = armado.ruta_de_descarga(token, juzgado, request.user, que) if juzgado else None
+        if encontrado is None:
+            raise Http404("La nómina ya no está disponible: vuelve a armarla.")
+        ruta, nombre = encontrado
+        return FileResponse(open(ruta, "rb"), as_attachment=True, filename=nombre)
 
 
 # ══════════════════════════════════════════════════════════════════════

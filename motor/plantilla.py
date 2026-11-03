@@ -90,6 +90,8 @@ import os
 import re
 
 import pandas as pd
+
+from .excel_seguro import df_a_xlsx
 from docx.shared import Inches
 from docxcompose.composer import Composer
 from docxtpl import DocxTemplate, InlineImage
@@ -723,7 +725,7 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
 
     if seguimiento:
         ruta_seguimiento = os.path.join(carpeta, f"{base_lote}_seguimiento_cartas.xlsx")
-        pd.DataFrame(seguimiento).to_excel(ruta_seguimiento, index=False)
+        df_a_xlsx(pd.DataFrame(seguimiento), ruta_seguimiento)
         resultado["seguimiento"] = ruta_seguimiento
 
     return resultado

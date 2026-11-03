@@ -7,6 +7,9 @@
 <a href="{% url 'procesos:subir_nomina' %}" {% if actual == 'subir_nomina' or actual == 'resultado' %}aria-current="page"{% endif %}>
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#cartas"/></svg><span>Cartas</span>
 </a>
+<a href="{% url 'procesos:armar_nomina' %}" {% if actual == 'armar_nomina' %}aria-current="page"{% endif %}>
+  <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#hoja"/></svg><span>Nómina</span>
+</a>
 {% endif %}
 <a href="{% url 'procesos:agenda' %}" {% if actual == 'agenda' or actual == 'bloque_editar' or actual == 'bloque_eliminar' %}aria-current="page"{% endif %}>
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg><span>Agenda</span>

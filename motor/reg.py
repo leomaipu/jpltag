@@ -12,10 +12,10 @@ _REG = re.compile(r"(.*?)(\d+)")
 def validar_reg(texto):
     """Devuelve el Reg N° inicial limpio o levanta ValueError."""
     reg = str(texto or "").strip()
-    if not _REG.fullmatch(reg):
+    if reg[:1] in "=+-@" or not _REG.fullmatch(reg):
         raise ValueError(
             "El Reg N° debe terminar en un número (por ejemplo 15230 o R-0450): "
-            "aumenta de 1 en 1 en cada carta."
+            "aumenta de 1 en 1 en cada carta (no puede empezar con = + - @)."
         )
     return reg
 

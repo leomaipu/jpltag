@@ -164,7 +164,10 @@ class SubirNominaForm(forms.Form):
                     else:
                         datos["bloques_audiencia"] = parsear_fechas_audiencia(texto)
                 except ValueError as exc:
-                    self.add_error("fechas_audiencia", str(exc))
+                    extra = ""
+                    if not datos.get("cartas_por_fecha") and len(texto.splitlines()) > 1:
+                        extra = " Si son varias fechas repartidas por cantidad de cartas, completa «Cartas por fecha»."
+                    self.add_error("fechas_audiencia", str(exc) + extra)
         if datos.get("tipo_carta") == TipoCarta.SENTENCIA and not datos.get("fecha_audiencia"):
             self.add_error(
                 "fecha_audiencia",

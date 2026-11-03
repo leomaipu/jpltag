@@ -519,7 +519,8 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         # El paquete se revisa antes de preguntar por las repetidas: así no se
         # pregunta algo para rechazarlo después.
         _revisar_paquete(len(incluidos), solicitud.n_cartas_paquete)
-        incluidos = _resolver_repetidas(juzgado, solicitud, anio_pred, mes_pred, incluidos)
+        # Antes de preguntar por las repetidas (peor caso: se incluyen todas): la
+        # pantalla de repetidas no permite corregir fechas.
         if solicitud.fechas_tanda and tipo_carta != TipoCarta.SENTENCIA and not settings.JPLTAG_AGENDA_ACTIVA:
             necesarias = fechas_necesarias(len(incluidos), solicitud.cartas_por_fecha)
             if necesarias > len(solicitud.fechas_tanda):
@@ -528,6 +529,7 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
                     f"{necesarias} fechas de audiencia; escribiste {len(solicitud.fechas_tanda)}. "
                     f"Agrega fechas o sube «Cartas por fecha»."
                 )
+        incluidos = _resolver_repetidas(juzgado, solicitud, anio_pred, mes_pred, incluidos)
         if solicitud.reg:
             avisos = {**avisos, "reg_desde": reg_para_carta(solicitud.reg, 0),
                       "reg_hasta": reg_para_carta(solicitud.reg, len(incluidos) - 1)}

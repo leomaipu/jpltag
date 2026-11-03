@@ -56,6 +56,11 @@ class TandasTest(unittest.TestCase):
                 parsear_fechas_por_tanda(texto, hoy=HOY)
             self.assertIn(frag, str(cm.exception))
 
+    def test_reg_que_empieza_como_formula_se_rechaza(self):
+        for texto in ("=1+1", "+5", "-3", "@9"):
+            with self.subTest(texto=texto), self.assertRaises(ValueError):
+                validar_reg(texto)
+
 
 if __name__ == "__main__":
     unittest.main()

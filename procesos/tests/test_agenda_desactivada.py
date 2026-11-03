@@ -136,6 +136,17 @@ class AgendaDesactivadaTest(TestCase):
             bloque = texto[texto.index(f"placa patente {pat}"):][:400]
             self.assertIn(f"el día {fecha},", bloque, pat)
 
+    def test_varias_fechas_sin_cartas_por_fecha_sugiere_completarlo(self):
+        resp = self._subir_n(2, fechas_audiencia=f"{self._futura(60)}\n{self._futura(61)}")
+        self.assertContains(resp, "completa «Cartas por fecha»")
+
+    def test_las_fechas_insuficientes_se_rechazan_antes_de_preguntar_por_repetidas(self):
+        self._subir_n(2, fechas_audiencia=self._futura(60))
+        resp = self._subir_n(5, fechas_audiencia=f"{self._futura(60)}\n{self._futura(61)}", cartas_por_fecha=2)
+        self.assertContains(resp, "se necesitan 3 fechas de audiencia")
+        self.assertNotContains(resp, "Continuar")
+        self.assertEqual(GeneracionCartas.objects.count(), 1)
+
     def test_si_las_fechas_no_alcanzan_no_se_genera_y_se_explica(self):
         resp = self._subir_n(5, fechas_audiencia=f"{self._futura(60)}\n{self._futura(61)}", cartas_por_fecha=2)
         self.assertContains(resp, "Son 5 cartas y con 2 cartas por fecha se necesitan 3 fechas de audiencia; escribiste 2")

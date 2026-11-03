@@ -39,6 +39,15 @@ class VariosRutTest(unittest.TestCase):
         self.assertEqual(len(g), 1)
         self.assertEqual(av["patentes_con_varios_rut"], 0)
 
+    def test_rut_sin_guion_o_con_ceros_es_el_mismo(self):
+        df = _df([
+            {"patente": "AAAA11", "NRO PARTE": "1", "rut_infractor": "12345678-9"},
+            {"patente": "AAAA11", "NRO PARTE": "2", "rut_infractor": "123456789"},
+            {"patente": "AAAA11", "NRO PARTE": "3", "rut_infractor": "012.345.678-9"},
+        ])
+        g, _, av = construir_grupos(df, [], 1)
+        self.assertEqual(len(g), 1)
+
     def test_un_solo_rut_la_clave_sigue_siendo_la_patente(self):
         g, _, _ = construir_grupos(_df([{"patente": "AAAA11", "NRO PARTE": "1", "rut_infractor": "1-9"}]), [], 1)
         self.assertEqual(list(g), ["AAAA11"])

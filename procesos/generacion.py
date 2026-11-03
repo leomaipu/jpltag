@@ -592,7 +592,8 @@ def _citaciones_de_la_nomina(df, incluidos, bloques=()):
     1. Las fechas que la persona escribió al generar (por bloque de folios)
        mandan: la causa toma la fecha del bloque de su ROL.
     2. Si ninguna causa de la patente cae en un bloque, o no se escribieron
-       fechas, se usa la FECHA CITACIÓN de la nómina.
+       fechas, se usa la FECHA CITACIÓN de la nómina, siempre que sea de hoy
+       en adelante: una audiencia ya pasada no se imprime.
     3. Sin ninguna de las dos, la carta sale «a coordinar con el Juzgado».
     Con fechas distintas dentro de una patente se usa la más temprana."""
     hoy = ahora_chile().date()
@@ -600,34 +601,37 @@ def _citaciones_de_la_nomina(df, incluidos, bloques=()):
     pendientes = incluidos
     if bloques:
         avisos["audiencia_desde_formulario"] = True
-        pendientes, distintas, causas_fuera = {}, 0, 0
+        pendientes, distintas, causas_fuera = {}, [], 0
         for pat, g in incluidos.items():
             fechas = [fecha_de_rol(bloques, c.get("rol_raw")) for c in g["causas"]]
             cubiertas = [f for f in fechas if f]
             causas_fuera += len(fechas) - len(cubiertas)
             if cubiertas:
                 slots[pat] = (min(cubiertas).strftime("%d/%m/%Y"), "")
-                distintas += len(set(cubiertas)) > 1
+                if len(set(cubiertas)) > 1:
+                    distintas.append(g.get("placa", pat))
             else:
                 pendientes[pat] = g
         if pendientes:
             avisos["audiencia_sin_bloque"] = len(pendientes)
         if distintas:
-            avisos["audiencia_fechas_distintas"] = distintas
-        if causas_fuera and not pendientes:
+            avisos["audiencia_fechas_distintas"] = len(distintas)
+            avisos["audiencia_fechas_distintas_ejemplos"] = ", ".join(sorted(distintas)[:10])
+        if causas_fuera:
             avisos["audiencia_causas_fuera_de_bloques"] = causas_fuera
 
     hay_columna = tiene_columna(df, "FECHA_CITA")
     sin_fecha, distintas, pasadas = [], [], []
     for pat, g in pendientes.items():
-        if g.get("citacion"):
-            slots[pat] = (g["citacion"], "")
-            if len(g["citaciones"]) > 1:
-                distintas.append(pat)
-            if date.fromisoformat(min(g["citaciones"])) < hoy:
-                pasadas.append(pat)
-        else:
+        if not g.get("citacion"):
             sin_fecha.append(pat)
+            continue
+        if date.fromisoformat(min(g["citaciones"])) < hoy:
+            pasadas.append(pat)      # no se imprime una audiencia que ya pasó
+            continue
+        slots[pat] = (g["citacion"], "")
+        if len(g["citaciones"]) > 1:
+            distintas.append(pat)
     if pendientes:
         if not hay_columna and not bloques:
             avisos["citacion_sin_columna"] = True

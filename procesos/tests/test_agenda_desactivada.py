@@ -118,6 +118,59 @@ class AgendaDesactivadaTest(TestCase):
         self.assertIn("en fecha y hora a coordinar con el Juzgado", texto)
         self.assertContains(resp, "sin ninguna causa dentro de los bloques de folios indicados")
 
+    def test_fechas_distintas_en_una_patente_usa_la_mas_temprana_y_nombra_ejemplos(self):
+        a, b = self._futura(60), self._futura(61)
+        filas = [fila_nomina(pat="AAAA11", nro_parte=str(4000 + i), rol=f"2026-Y-{1000 + i}") for i in range(2)]
+        datos = {"nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION", "nombre_firmante": "X",
+                 "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
+                 "fechas_audiencia": f"1000-1000 {b}\n1001-1001 {a}"}
+        resp = self.client.post("/subir/", datos, follow=True)
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertIn(f"el día {a},", texto)
+        self.assertNotIn(f"el día {b},", texto)
+        self.assertContains(resp, "la carta usa la más temprana (por ejemplo AAAA11)")
+
+    def test_cobertura_parcial_avisa_las_causas_fuera_de_bloque(self):
+        filas = [fila_nomina(pat="AAAA11", nro_parte="1", rol="2026-Y-1000"),
+                 fila_nomina(pat="AAAA11", nro_parte="2", rol="2026-Y-1001"),
+                 fila_nomina(pat="BBBB22", nro_parte="3", rol="2026-Y-9000")]
+        datos = {"nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION", "nombre_firmante": "X",
+                 "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
+                 "fechas_audiencia": f"1000-1000 {self._futura()}"}
+        resp = self.client.post("/subir/", datos, follow=True)
+        self.assertContains(resp, "2 causas fuera de los bloques de folios indicados")
+        self.assertContains(resp, "1 patente sin ninguna causa dentro de los bloques")
+
+    def test_el_ampersand_no_corta_la_carta_ni_el_reg(self):
+        filas = [fila_nomina(pat="AAAA11", nombre="TRANSPORTES J&J", ap1="<SPA>", ap2="")]
+        datos = {"nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION", "nombre_firmante": "X",
+                 "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA, "reg": "A&B <1>"}
+        self.client.post("/subir/", datos, follow=True)
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertIn("TRANSPORTES J&J <SPA>", texto)
+        self.assertIn("Reg N° A&B <1>", texto)
+
+    def test_patente_con_dos_rut_son_dos_cartas_y_el_seguimiento_las_distingue(self):
+        filas = [fila_nomina(pat="AAAA11", nro_parte="1", rut="11111111", dv="1", nombre="Ana"),
+                 fila_nomina(pat="AAAA11", nro_parte="2", rut="22222222", dv="2", nombre="Beto"),
+                 fila_nomina(pat="AAAA11", nro_parte="3", rut="11111111", dv="1", nombre="Ana")]
+        datos = {"nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION", "nombre_firmante": "X",
+                 "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA}
+        self.client.post("/subir/", datos, follow=True)
+        corrida = GeneracionCartas.objects.get()
+        self.assertEqual(corrida.total_patentes, 2)
+        texto = self._texto_de_las_cartas(corrida)
+        self.assertEqual(texto.count("placa patente AAAA11-1"), 2)
+        self.assertEqual(texto.count("NOMBRE: Ana"), 1)
+        self.assertEqual(texto.count("NOMBRE: Beto"), 1)
+        archivo = corrida.archivos.get(tipo=ArchivoGenerado.Tipo.SEGUIMIENTO)
+        resp = self.client.get(f"/descargar/{archivo.pk}/")
+        import pandas as pd
+        seg = pd.read_excel(io.BytesIO(b"".join(resp.streaming_content)), dtype=str)
+        self.assertEqual(set(seg["Patente"]), {"AAAA11"})
+        self.assertEqual(seg.groupby("N° de Carta")["RUT"].nunique().max(), 1)
+        self.assertEqual(seg["N° de Carta"].nunique(), 2)
+
     def test_el_formulario_exige_reg_y_fechas(self):
         resp = self._subir("CITACION", fechas="", reg="")
         self.assertContains(resp, "Escribe el Reg N° que se imprime en las cartas.")
@@ -150,9 +203,11 @@ class AgendaDesactivadaTest(TestCase):
 
     # ── FECHA CITACIÓN de la nómina: respaldo ────────────────────────────
 
-    def test_fecha_en_el_pasado_de_la_nomina_se_respeta_pero_avisa(self):
+    def test_fecha_en_el_pasado_de_la_nomina_no_se_imprime_y_avisa(self):
         resp = self._subir("CITACION", fechas=f"1-2 {self._futura()}", citaciones=["24/08/2026", "24/08/2026"])
-        self.assertIn("el día 24/08/2026", self._texto_de_las_cartas(GeneracionCartas.objects.get()))
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertNotIn("24/08/2026", texto)
+        self.assertIn("en fecha y hora a coordinar con el Juzgado", texto)
         self.assertContains(resp, "fecha de citación anterior a hoy")
 
     def test_fecha_con_hora_sin_segundos_y_celda_datetime_de_la_nomina(self):

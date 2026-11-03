@@ -160,6 +160,28 @@ class ArmarNominaTest(unittest.TestCase):
         _, inf = self._armar([ing_fila(1)], [cau_fila(1), cau_fila(2)])
         self.assertIn("PENDIENTE en Causas por estado pero sin Ingresos diarios", " ".join(inf.excluidas["Motivo"]))
 
+    def test_domicilio_basura_se_trata_como_faltante(self):
+        for basura in ("A 1", "0", "00", "A 0", "1", "M 136"):
+            with self.subTest(basura=basura):
+                nom, inf = self._armar([ing_fila(1)], [cau_fila(1, dir_=basura)])
+                self.assertEqual(len(nom), 0)
+                self.assertIn(f"«{basura}»", inf.excluidas.iloc[0]["Motivo"])
+
+    def test_domicilio_basura_se_completa_con_una_direccion_real_del_mismo_rut(self):
+        nom, inf = self._armar([ing_fila(1)], [cau_fila(1, dir_="A 1", comuna="X"),
+                                               cau_fila(2, estado="FALLADA", dir_="AV REAL 12", comuna="LO PRADO")])
+        self.assertEqual((nom.iloc[0]["domicilio_infractor"], nom.iloc[0]["comuna_infractor"]), ("AV REAL 12", "LO PRADO"))
+
+    def test_una_direccion_real_corta_no_se_descarta(self):
+        nom, _ = self._armar([ing_fila(1)], [cau_fila(1, dir_="AV 5 NORTE 12")])
+        self.assertEqual(len(nom), 1)
+
+    def test_resumen_separa_excluidas_y_pendientes_sin_ingreso(self):
+        _, inf = self._armar([ing_fila(1), ing_fila(2, estado="PAGADO Y ARCHIVADO")], [cau_fila(1), cau_fila(2), cau_fila(3)])
+        self.assertEqual(inf.resumen["Filas excluidas de Ingresos diarios (ver hoja «Excluidas»)"], 1)
+        self.assertEqual(inf.resumen["Causas PENDIENTES sin Ingresos diarios (también en «Excluidas»)"], 1)
+        self.assertEqual(len(inf.excluidas), 2)
+
     def test_citacion_en_el_pasado_se_alerta(self):
         _, inf = self._armar([ing_fila(1, cita=datetime(2020, 1, 1))], [cau_fila(1)])
         self.assertTrue(any("anterior a hoy" in t for _, t in inf.alertas))

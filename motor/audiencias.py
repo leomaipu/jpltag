@@ -12,7 +12,7 @@ o una sola fecha para toda la nómina:
     14/12/2026
 
 El «folio» de una causa es el número de su ROL («2026-Y-127795» → 127795;
-«13Y95046/26» → 95046). Ambos extremos del bloque se incluyen.
+«13Y95046/26» → 95046). Otras notaciones no se interpretan. Ambos extremos del bloque se incluyen.
 """
 
 import re
@@ -31,7 +31,7 @@ def correlativo_rol(rol):
     m = re.fullmatch(r"\d+\s*Y\s*(\d+)\s*/\s*\d+", texto, re.IGNORECASE)
     if m:
         return int(m.group(1))
-    m = re.search(r"-(\d+)$", texto)
+    m = re.fullmatch(r"\d{4}\s*-\s*[A-Za-z]\d*\s*-\s*(\d+)", texto)
     return int(m.group(1)) if m else None
 
 
@@ -54,6 +54,8 @@ def parsear_fechas_audiencia(texto, hoy=None):
             fecha = datetime.strptime(f, "%d/%m/%Y").date()
         except ValueError:
             raise ValueError(f"Línea {n}: «{f}» no es una fecha válida (dd/mm/aaaa).") from None
+        if (fecha - hoy).days > 366:
+            raise ValueError(f"Línea {n}: la fecha {f} está a más de un año: revisa el año.")
         if fecha < hoy:
             raise ValueError(f"Línea {n}: la fecha {f} ya pasó; la audiencia debe ser desde hoy en adelante.")
         if desde is not None:

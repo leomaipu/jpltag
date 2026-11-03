@@ -102,6 +102,12 @@ def _fecha(valor):
     return None
 
 
+def _domicilio_valido(texto):
+    """Un domicilio real tiene al menos 3 letras (calle o población). Valores
+    como «0», «A 1» o «00», que SMC deja cuando no hay dirección, no lo son."""
+    return sum(c.isalpha() for c in str(texto or "")) >= 3
+
+
 def _sin_id(descripcion):
     """«Infraccion al Art. 114 ... - ID:16381469» → sin el « - ID:…» final."""
     return re.sub(r"\s*-\s*ID:\s*\d+\s*$", "", str(descripcion)).strip()
@@ -184,12 +190,12 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     def rutk(serie):
         return serie.str.upper().str.replace(".", "", regex=False)
 
-    con_dir = cau_todas[cau_todas["direccion"] != ""].assign(_rutk=lambda d: rutk(d["rut"]))
+    con_dir = cau_todas[cau_todas["direccion"].map(_domicilio_valido)].assign(_rutk=lambda d: rutk(d["rut"]))
     por_rut = con_dir.groupby("_rutk")[["direccion", "comuna"]].first()
     m["_rutk"] = rutk(m["rut"])
     completadas = 0
     sin_dir = []
-    for i in m.index[m["direccion"] == ""]:
+    for i in m.index[~m["direccion"].map(_domicilio_valido)]:
         k = m.at[i, "_rutk"]
         if k in por_rut.index:
             m.at[i, "direccion"] = por_rut.at[k, "direccion"]
@@ -198,8 +204,9 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
         else:
             sin_dir.append(i)
     for _, f in m.loc[sin_dir].iterrows():
+        dato = f"«{f['direccion']}»" if f["direccion"] else "vacío"
         excl.append((f["CAUSA"], f["NRO PARTE"],
-                     "Sin domicilio: el RUT no trae dirección en ninguna causa del listado por estado"))
+                     f"Sin domicilio válido ({dato}): el RUT no trae una dirección real en ninguna causa del listado por estado"))
     sin_dom = m.loc[sin_dir][["CAUSA", "NRO PARTE", "PLACA", "rut", "nombre", "comuna"]].copy()
     m = m.drop(index=sin_dir).reset_index(drop=True)
 
@@ -281,7 +288,8 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
         "Filas en Causas por estado": n_cau,
         "Filas en la nómina": len(nomina),
         "Patentes distintas": int(patentes.nunique()),
-        "Filas excluidas (ver hoja)": len(informe.excluidas),
+        "Filas excluidas de Ingresos diarios (ver hoja «Excluidas»)": len(excl) - len(pend_sin_ing),
+        "Causas PENDIENTES sin Ingresos diarios (también en «Excluidas»)": len(pend_sin_ing),
         "Domicilios completados desde otra causa del mismo RUT": completadas,
         "Causas del listado por estado que no entran (otro estado o sin ingreso)": len(fallada) + len(pend_sin_ing),
         "Fecha de citación reemplazada por bloque de folios": (len(nomina) - fuera_de_bloque) if citaciones_por_bloque else 0,

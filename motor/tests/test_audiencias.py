@@ -12,6 +12,10 @@ class AudienciasTest(unittest.TestCase):
     def test_folio_de_los_rol_conocidos(self):
         self.assertEqual(correlativo_rol("2026-Y-127795"), 127795)
         self.assertEqual(correlativo_rol("13Y95046/26"), 95046)
+        self.assertEqual(correlativo_rol("2026-Y11-259698"), 259698)
+        self.assertEqual(correlativo_rol("2026-Z-877175"), 877175)
+        self.assertIsNone(correlativo_rol("13-Y-95046-2026"))   # no se adivina
+        self.assertIsNone(correlativo_rol("95046-2026"))
         self.assertEqual(correlativo_rol("PENDIENTE"), None)
         self.assertEqual(correlativo_rol(""), None)
         self.assertEqual(correlativo_rol(None), None)
@@ -44,6 +48,7 @@ class AudienciasTest(unittest.TestCase):
             ("100-200 14/12/2026\n200-300 15/12/2026", "se solapan"),
             ("14/12/2026\n100-200 15/12/2026", "no ambos"),
             ("14/12/2026\n15/12/2026", "no ambos"),
+            ("14/12/2062", "más de un año"),
         ):
             with self.subTest(texto=texto), self.assertRaises(ValueError) as cm:
                 parsear_fechas_audiencia(texto, hoy=HOY)

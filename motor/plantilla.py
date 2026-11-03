@@ -335,7 +335,9 @@ def renderizar_carta(ruta_plantilla, contexto, config):
     hay_firma = bool(ctx["firma_foto"])
     ctx["linea_firma"] = "" if hay_firma else LINEA_FIRMA_DEFECTO
     ctx["firma_img"] = ctx["firma_foto"] if hay_firma else LINEA_FIRMA_DEFECTO
-    tpl.render(ctx)
+    # autoescape: un «&» o «<» en un nombre o en el Reg N° rompería el XML del
+    # Word y la carta saldría con el texto cortado, sin ningún error.
+    tpl.render(ctx, autoescape=True)
     # ¡Nunca tpl.get_docx() después de render()! get_docx() llama a
     # init_docx(reload=True), que como is_rendered ya quedó en True acá
     # vuelve a LEER la plantilla original sin renderizar, pisando el
@@ -518,6 +520,7 @@ def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
             "N° de Carta": numero_carta,
             "Tipo de carta": tipo_carta,
             "Patente": info.get("placa", patente),
+            "RUT": info.get("rut", ""),
             "N° de Parte": causa["nroParte"],
             "Rol": formatear_rol(causa.get("rol_raw")),
         }

@@ -4,6 +4,7 @@ la nómina, y filtrado por el rango de días que le corresponde a cada
 juzgado. Porteado de generar_notificaciones_JPL1.py.
 """
 
+import re
 from collections import Counter
 
 from .columnas import get_col, parsear_fecha
@@ -11,22 +12,23 @@ from .multas import buscar_multa
 
 
 def _rut_de(row):
-    """RUT de la fila, comparable (sin puntos, en mayúscula, con DV si va aparte)."""
+    """(clave comparable, texto original) del RUT de la fila. La clave no
+    tiene puntos, espacios, guion ni ceros a la izquierda y va en mayúscula."""
     rut, dv = get_col(row, "RUT"), get_col(row, "DV")
     texto = f"{rut}-{dv}" if rut and dv else rut
-    return texto.replace(".", "").replace(" ", "").upper()
+    return re.sub(r"[.\s-]", "", texto).upper().lstrip("0"), texto
 
 
 def _claves_por_patente(df):
-    """{patente: [RUT en orden de aparición]} para las patentes que figuran
-    con más de un RUT: vendida a otra persona = otra carta."""
+    """{patente: {clave de RUT: texto original}} para las patentes que figuran
+    con más de un RUT: vehículo vendido a otra persona = otra carta."""
     ruts = {}
     for _, row in df.iterrows():
         pat = get_col(row, "PATENTE").upper().strip()
-        rut = _rut_de(row)
-        if pat and rut and rut not in ruts.setdefault(pat, []):
-            ruts[pat].append(rut)
-    return {pat: lista for pat, lista in ruts.items() if len(lista) > 1}
+        clave, texto = _rut_de(row)
+        if pat and clave:
+            ruts.setdefault(pat, {}).setdefault(clave, texto)
+    return {pat: d for pat, d in ruts.items() if len(d) > 1}
 
 
 def construir_grupos(df, tabla_multas, utm_multa_defecto):
@@ -57,11 +59,12 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
 
         placa = pat
         if pat in varios_rut:
-            rut_fila = _rut_de(row)
-            if not rut_fila:
+            clave_rut, _ = _rut_de(row)
+            if not clave_rut:
                 filas_sin_rut += 1
-            # Una fila sin RUT en una patente con varios queda con el primero.
-            pat = f"{placa} · {rut_fila or varios_rut[placa][0]}"
+                # Una fila sin RUT en una patente con varios queda con el primero.
+                clave_rut = next(iter(varios_rut[placa]))
+            pat = f"{placa} · {varios_rut[placa][clave_rut]}"
 
         nro_parte_row = get_col(row, "NRO_PARTE")
         fecha_row = get_col(row, "FECHA_INF")

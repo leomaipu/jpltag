@@ -15,6 +15,16 @@ import pandas as pd
 # completo: un patrón por subcadena tomaría «ROLMOP» o «Control» como ROL.
 ENCABEZADOS_ROL = ("rol", "rol causa", "rol_causa", "n° rol", "nº rol", "n.º rol", "nro rol")
 
+# El tipo de vehículo («SEDAN», «STATION WAGON»…) también se reconoce SOLO por
+# su encabezado completo: «vehiculo» por subcadena tomaría «MARCA DEL VEHICULO».
+ENCABEZADOS_TIPO_VEHICULO = (
+    "vehiculo", "vehículo", "tipo vehiculo", "tipo vehículo",
+    "tipo de vehiculo", "tipo de vehículo",
+)
+
+# Claves que se buscan por encabezado completo y no por subcadena.
+CLAVES_ENCABEZADO_EXACTO = ("ROL", "TIPO_VEH")
+
 MAPEO = {
     "NRO_PARTE": ["número de parte", "nro parte", "numero de parte"],
     "FECHA_INF": ["fecha infracción", "fecha infrac", "fecha inf"],
@@ -23,6 +33,7 @@ MAPEO = {
     "DISPOSICION": ["disposiciones infringidas", "disposicion", "disposición"],
     "PATENTE": ["patente"],
     "DIG_PAT": ["digito patente", "digito pate", "dígito patente"],
+    "TIPO_VEH": list(ENCABEZADOS_TIPO_VEHICULO),
     "ROL": list(ENCABEZADOS_ROL),   # se busca por encabezado exacto (ver get_col)
     "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion"],
     "REG": ["folio carta tramite", "reg n", "registro"],
@@ -67,7 +78,7 @@ def get_col(row, key):
     valor está vacío."""
     for pattern in MAPEO.get(key, []):
         for col in row.index:
-            calza = (_normalizar(col) == pattern) if key == "ROL" else (pattern in str(col).lower().strip())
+            calza = (_normalizar(col) == pattern) if key in CLAVES_ENCABEZADO_EXACTO else (pattern in str(col).lower().strip())
             if calza:
                 val = row[col]
                 if pd.isna(val) or str(val).strip() == "":

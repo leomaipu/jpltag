@@ -23,7 +23,7 @@ from procesos.generacion import (
 
 from procesos.models import GeneracionCartas
 
-from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar
+from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar, CAMPOS_REG_Y_AUDIENCIA
 from .test_diseno import problemas_de_csp
 
 HOY = timezone.localdate()
@@ -541,7 +541,7 @@ class _GeneracionBase(BloquesBase):
         filas = [fila_nomina(pat=p, nro_parte=str(3000 + i), fecha="03/09/2026") for i, p in enumerate(patentes)]
         return self.client.post("/subir/", {
             "nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION",
-            "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 0,
+            "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         }, follow=True)
 
     def setUp(self):
@@ -605,7 +605,7 @@ class GeneracionDeCartasYAgendaTest(_GeneracionBase):
         self.client.post("/subir/", {
             "nomina": construir_nomina_xlsx([fila_nomina(pat="AAAA11", fecha="03/09/2026")]),
             "tipo_carta": "SENTENCIA", "fecha_audiencia": MANANA.isoformat(),
-            "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 0,
+            "nombre_firmante": "Secretaria de Prueba", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         })
         self.assertEqual(self.recargar(self.bloque).cupos_usados, 0)
 

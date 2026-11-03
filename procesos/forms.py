@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.validators import MaxValueValidator
 
+from motor.audiencias import parsear_fechas_audiencia
 from motor.plantilla import MARCADOR_DESCONOCIDO, validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta, ahora_local
 
@@ -62,6 +63,22 @@ class SubirNominaForm(forms.Form):
         label="Fecha de la sentencia", required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
         help_text="Se escribe en cada carta. Una sola fecha por tanda.",
+    )
+    reg = forms.CharField(
+        label="Reg N°", max_length=40,
+        help_text="El número de registro del sobre; se imprime en cada carta.",
+        error_messages={
+            "required": "Escribe el Reg N° que se imprime en las cartas.",
+            "max_length": "El Reg N° es demasiado largo (máximo 40 caracteres).",
+        },
+    )
+    fechas_audiencia = forms.CharField(
+        label="Fechas de audiencia", required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "127795-129000 14/12/2026\n129001-131500 15/12/2026"}),
+        help_text=(
+            "Las fija el Juzgado por bloque de folios, una línea por bloque: «desde-hasta dd/mm/aaaa». "
+            "Si es una sola fecha para toda la nómina, escribe solo la fecha. La hora no se imprime."
+        ),
     )
     nomina = forms.FileField(
         label="Nómina del mes (.xlsx)", required=False,
@@ -128,6 +145,16 @@ class SubirNominaForm(forms.Form):
         datos = super().clean()
         if not datos.get("nomina") and not datos.get("nomina_guardada"):
             self.add_error("nomina", "Elige el Excel de la nómina del mes.")
+        tipo = datos.get("tipo_carta")
+        texto = (datos.get("fechas_audiencia") or "").strip()
+        if tipo != TipoCarta.SENTENCIA and (texto or not settings.JPLTAG_AGENDA_ACTIVA):
+            if not texto:
+                self.add_error("fechas_audiencia", "Escribe las fechas de audiencia que fijó el Juzgado: van escritas en la carta.")
+            else:
+                try:
+                    datos["bloques_audiencia"] = parsear_fechas_audiencia(texto)
+                except ValueError as exc:
+                    self.add_error("fechas_audiencia", str(exc))
         if datos.get("tipo_carta") == TipoCarta.SENTENCIA and not datos.get("fecha_audiencia"):
             self.add_error(
                 "fecha_audiencia",

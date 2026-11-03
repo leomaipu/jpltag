@@ -75,7 +75,7 @@ class ArmarNominaTest(unittest.TestCase):
     def test_partes_repetidos_se_excluyen_todas_las_copias(self):
         nom, inf = self._armar([ing_fila(1), ing_fila(2, parte="1001-MVN")], [cau_fila(1), cau_fila(2)])
         self.assertEqual(len(nom), 0)
-        self.assertEqual(len(inf.excluidas), 2)
+        self.assertEqual(sum("repetido en Ingresos diarios" in m for m in inf.excluidas["Motivo"]), 2)
 
     def test_parte_repetido_en_causas_por_estado(self):
         nom, inf = self._armar([ing_fila(1)], [cau_fila(1), cau_fila(1)])
@@ -128,16 +128,37 @@ class ArmarNominaTest(unittest.TestCase):
         self.assertNotIn("Todas las fechas de infracción caen", textos)
         _, inf = self._armar([ing_fila(1)], [cau_fila(1)])
         self.assertIn("Todas las fechas de infracción caen en los días 1–10", " | ".join(t for _, t in inf.alertas))
+        self.assertIn("1er juzgado (días 1–10): 1", " | ".join(t for _, t in inf.alertas))
 
     def test_estado_en_minuscula_y_con_espacios(self):
         nom, _ = self._armar([ing_fila(1, estado="  pendiente ")], [cau_fila(1, estado="Pendiente")])
         self.assertEqual(len(nom), 1)
 
-    def test_sin_domicilio_se_mantiene_y_se_alerta(self):
+    def test_sin_domicilio_y_sin_otro_rut_coincidente_queda_fuera_y_registrada(self):
         nom, inf = self._armar([ing_fila(1)], [cau_fila(1, dir_=None)])
+        self.assertEqual(len(nom), 0)
+        motivos = list(inf.excluidas["Motivo"])
+        self.assertEqual(len(motivos), 1)
+        self.assertTrue(motivos[0].startswith("Sin domicilio"))
+        self.assertTrue(any("sin tener domicilio" in t or "por no tener domicilio" in t for _, t in inf.alertas))
+        self.assertEqual(len(inf.revisar["Sin domicilio"]), 1)
+
+    def test_domicilio_se_busca_por_rut_en_todo_el_listado_aunque_este_fallada(self):
+        # La otra causa del RUT está FALLADA y no entra a la nómina, pero su dirección sirve.
+        nom, inf = self._armar([ing_fila(1)], [cau_fila(1, dir_=None, comuna=None),
+                                               cau_fila(2, estado="FALLADA", dir_="AV SIEMPRE VIVA 742", comuna="LO PRADO")])
         self.assertEqual(len(nom), 1)
-        self.assertTrue(any("sin domicilio" in t for _, t in inf.alertas))
-        self.assertIn("Sin domicilio", inf.revisar)
+        self.assertEqual((nom.iloc[0]["domicilio_infractor"], nom.iloc[0]["comuna_infractor"]), ("AV SIEMPRE VIVA 742", "LO PRADO"))
+        self.assertEqual(inf.resumen["Domicilios completados desde otra causa del mismo RUT"], 1)
+
+    def test_rut_con_puntos_o_minusculas_coincide(self):
+        nom, _ = self._armar([ing_fila(1, rut="1.111.111-k")], [cau_fila(1, rut="1.111.111-k", dir_=None),
+                                                              cau_fila(2, rut="1111111-K", estado="FALLADA")])
+        self.assertEqual(len(nom), 1)
+
+    def test_pendientes_sin_ingreso_van_a_excluidas(self):
+        _, inf = self._armar([ing_fila(1)], [cau_fila(1), cau_fila(2)])
+        self.assertIn("PENDIENTE en Causas por estado pero sin Ingresos diarios", " ".join(inf.excluidas["Motivo"]))
 
     def test_citacion_en_el_pasado_se_alerta(self):
         _, inf = self._armar([ing_fila(1, cita=datetime(2020, 1, 1))], [cau_fila(1)])
@@ -153,7 +174,7 @@ class ArmarNominaTest(unittest.TestCase):
     def test_patente_con_varios_rut_se_alerta(self):
         _, inf = self._armar([ing_fila(1), ing_fila(2, rut="22222222-2")],
                              [cau_fila(1), cau_fila(2, rut="22222222-2")])
-        self.assertTrue(any("más de un RUT" in t for _, t in inf.alertas))
+        self.assertTrue(any("más de un RUT" in t and "una carta por RUT" in t for _, t in inf.alertas))
 
     def test_columnas_faltantes_dan_error_claro(self):
         with self.assertRaises(ReporteInvalido) as cm:

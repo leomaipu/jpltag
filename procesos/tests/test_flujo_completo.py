@@ -17,7 +17,7 @@ from django.test import TestCase, override_settings
 
 from procesos.models import ArchivoGenerado, GeneracionCartas
 
-from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar
+from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar, CAMPOS_REG_Y_AUDIENCIA
 
 _TMP_SALIDAS = tempfile.mkdtemp(prefix="jpltag-pruebas-salidas-")
 
@@ -46,7 +46,7 @@ class FlujoCompletoTest(TestCase):
             "tipo_carta": "CITACION",
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA",
-            "n_cartas_paquete": 0,
+            "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         }, follow=True)
 
     def test_sube_genera_y_termina_en_la_pagina_de_resultado(self):

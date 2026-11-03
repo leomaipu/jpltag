@@ -517,7 +517,7 @@ def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
             "Lote": num_lote,
             "N° de Carta": numero_carta,
             "Tipo de carta": tipo_carta,
-            "Patente": patente,
+            "Patente": info.get("placa", patente),
             "N° de Parte": causa["nroParte"],
             "Rol": formatear_rol(causa.get("rol_raw")),
         }
@@ -533,8 +533,8 @@ def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plan
     numero_por_patente = {pat: n for n, (pat, _) in enumerate(lote_patentes, primera_carta)}
     documentos_carta = []
     for pg in expandir_en_paginas(dict(lote_patentes), max_causas):
-        slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
-        contexto = construir_contexto(pg, slot, numero_por_patente[pg["patente"]], config)
+        slot = slots.get(pg["clave"], SLOT_SIN_AGENDA)
+        contexto = construir_contexto(pg, slot, numero_por_patente[pg["clave"]], config)
         documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
     # Se escribe aparte y se renombra al final: si el proceso muere a mitad
     # de guardar, no queda un .docx truncado con el nombre definitivo (al

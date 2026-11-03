@@ -23,6 +23,8 @@ from datetime import date, datetime
 
 import pandas as pd
 
+from .audiencias import correlativo_rol as _correlativo
+
 COLUMNAS_NOMINA = [
     "ROL", "NRO PARTE", "OFICINA REMISORA", "DESCRIPCIÓN CAUSA", "disposicion",
     "lugar", "FECHA PROCESO", "FECHA CITACIÓN", "ESTADO CAUSA", "FECHA TRÁMITE",
@@ -100,12 +102,6 @@ def _fecha(valor):
     return None
 
 
-def _correlativo(rol):
-    """«2026-Y-127795» → 127795 (None si no termina en número)."""
-    m = re.search(r"(\d+)\s*$", str(rol))
-    return int(m.group(1)) if m else None
-
-
 def _sin_id(descripcion):
     """«Infraccion al Art. 114 ... - ID:16381469» → sin el « - ID:…» final."""
     return re.sub(r"\s*-\s*ID:\s*\d+\s*$", "", str(descripcion)).strip()
@@ -129,6 +125,7 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     ing = _leer(ruta_ingresos, REQUERIDAS_INGRESOS, "Listado de ingresos diarios")
     cau = _leer(ruta_causas, REQUERIDAS_CAUSAS, "Listado de causas por estado")
     informe = Informe()
+    cau_todas = cau.copy()   # para buscar domicilios por RUT en TODO el listado
     excl = []   # (CAUSA, NRO PARTE, motivo)
 
     def excluir(filas, motivo):
@@ -180,19 +177,31 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
             excl.append((f["CAUSA"], f["NRO PARTE"], f"{motivo} ({f['estado']})" if "estado" in motivo else motivo))
     m = m[~(malo_rol | malo_rut | malo_estado)].copy()
 
-    # 5. Domicilio: si falta en una causa y el mismo RUT lo trae en otra, se
-    #    completa con ese (misma persona). Si no, queda vacío y se avisa.
-    m["_rutk"] = m["rut"].str.upper()
-    por_rut = (m[m["direccion"] != ""].groupby("_rutk")[["direccion", "comuna"]].first())
+    # 5. Domicilio: si falta en una causa, se busca por RUT en TODO el listado
+    #    de causas por estado (cualquier estado): misma persona, misma
+    #    dirección. Dirección y comuna van juntas. Si no aparece, la fila
+    #    queda fuera y registrada: sin domicilio no hay carta que despachar.
+    def rutk(serie):
+        return serie.str.upper().str.replace(".", "", regex=False)
+
+    con_dir = cau_todas[cau_todas["direccion"] != ""].assign(_rutk=lambda d: rutk(d["rut"]))
+    por_rut = con_dir.groupby("_rutk")[["direccion", "comuna"]].first()
+    m["_rutk"] = rutk(m["rut"])
     completadas = 0
+    sin_dir = []
     for i in m.index[m["direccion"] == ""]:
         k = m.at[i, "_rutk"]
         if k in por_rut.index:
-            # Dirección y comuna van juntas: nunca una comuna con la calle de otra.
             m.at[i, "direccion"] = por_rut.at[k, "direccion"]
             m.at[i, "comuna"] = por_rut.at[k, "comuna"]
             completadas += 1
-    m = m.reset_index(drop=True)
+        else:
+            sin_dir.append(i)
+    for _, f in m.loc[sin_dir].iterrows():
+        excl.append((f["CAUSA"], f["NRO PARTE"],
+                     "Sin domicilio: el RUT no trae dirección en ninguna causa del listado por estado"))
+    sin_dom = m.loc[sin_dir][["CAUSA", "NRO PARTE", "PLACA", "rut", "nombre", "comuna"]].copy()
+    m = m.drop(index=sin_dir).reset_index(drop=True)
 
     # 6. Fecha de citación fijada por el Juzgado, por bloque de folios.
     citacion = m["FECHA CITACIÓN"].map(_fecha)
@@ -233,7 +242,6 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     nomina["ID MOP"] = m["DESCRIPCIÓN CAUSA"].str.extract(r"ID:\s*(\d+)\s*$")[0].fillna("")
 
     # ── Informe ──────────────────────────────────────────────────────────
-    informe.excluidas = pd.DataFrame(excl, columns=["ROL (causa)", "N° de parte", "Motivo"])
     hoy = date.today()
     pas = int(sum(1 for d in nomina["FECHA CITACIÓN"] if isinstance(d, date) and d < hoy))
     sin_cit = int(sum(1 for d in nomina["FECHA CITACIÓN"] if not isinstance(d, date)))
@@ -241,7 +249,6 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     g = nomina.assign(_pat=patentes).groupby("_pat")
     pat_multi_rut = g["rut_infractor"].nunique()
     pat_multi_dom = g["domicilio_infractor"].nunique()
-    sin_dom = nomina[nomina["domicilio_infractor"] == ""]
     sin_com = nomina[nomina["comuna_infractor"] == ""]
     fi = nomina["FECHA INFRACCIÓN"]
     n_ilegibles = int(sum(1 for d in fi if not isinstance(d, date)))
@@ -258,6 +265,8 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     cau_ant = cau[~cau["parte"].isin(todas_ing)]
     fallada = cau_ant[cau_ant["estado"].str.upper() != ESTADO_NOTIFICABLE]
     pend_sin_ing = cau_ant[cau_ant["estado"].str.upper() == ESTADO_NOTIFICABLE]
+    for _, f in pend_sin_ing.iterrows():
+        excl.append((f["causarol"], f["parte"], "PENDIENTE en Causas por estado pero sin Ingresos diarios: sin patente no se puede notificar"))
     if len(pend_sin_ing):
         informe.alertas.append(("Media", f"{len(pend_sin_ing)} causas PENDIENTES del listado por estado no están en Ingresos diarios: "
                                 "sin patente no se pueden notificar (hoja «Pendientes sin ingreso»)."))
@@ -266,6 +275,7 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
         informe.alertas.append(("Info", f"{len(fallada)} causas del listado por estado ya están en otro estado "
                                 f"({', '.join(sorted(fallada['estado'].unique()))}) y no entran a la nómina."))
 
+    informe.excluidas = pd.DataFrame(excl, columns=["ROL (causa)", "N° de parte", "Motivo"])
     informe.resumen = {
         "Filas en Ingresos diarios": n_ing,
         "Filas en Causas por estado": n_cau,
@@ -285,24 +295,30 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     if fuera_de_bloque:
         informe.alertas.append(("Media", f"{fuera_de_bloque} ROL no caen en ningún bloque de folios: conservan la fecha del reporte."))
     if len(sin_dom):
-        informe.alertas.append(("Alta", f"{len(sin_dom)} filas sin domicilio ({sin_dom['patente'].nunique()} patentes): la carta no se puede despachar."))
-        informe.revisar["Sin domicilio"] = sin_dom[["ROL", "NRO PARTE", "patente", "rut_infractor", "nombre_infractor", "comuna_infractor"]]
+        informe.alertas.append(("Alta", f"{len(sin_dom)} filas ({sin_dom['PLACA'].str.upper().nunique()} patentes) quedaron fuera por no tener domicilio "
+                                "ni en otra causa del mismo RUT: están en la hoja «Excluidas» y en «Sin domicilio»."))
+        informe.revisar["Sin domicilio"] = sin_dom.rename(columns={
+            "CAUSA": "ROL", "NRO PARTE": "N° de parte", "PLACA": "Patente", "rut": "RUT", "nombre": "Nombre", "comuna": "Comuna"})
     if len(sin_com):
         informe.alertas.append(("Media", f"{len(sin_com)} filas sin comuna."))
     multi = pat_multi_rut[pat_multi_rut > 1]
     if len(multi):
-        informe.alertas.append(("Media", f"{len(multi)} patentes con más de un RUT: la carta usa los datos de la primera fila de la patente."))
+        informe.alertas.append(("Info", f"{len(multi)} patentes figuran con más de un RUT (el vehículo cambió de dueño): "
+                                "el motor emite una carta por RUT, con sus propias causas (hoja «Patente con varios RUT»)."))
         informe.revisar["Patente con varios RUT"] = nomina[nomina["patente"].isin(multi.index)][
-            ["patente", "ROL", "NRO PARTE", "rut_infractor", "nombre_infractor", "domicilio_infractor"]].sort_values(["patente", "ROL"])
+            ["patente", "ROL", "NRO PARTE", "rut_infractor", "nombre_infractor", "domicilio_infractor"]].sort_values(["patente", "rut_infractor", "ROL"])
     multi_d = pat_multi_dom[(pat_multi_dom > 1) & ~pat_multi_dom.index.isin(multi.index)]
     if len(multi_d):
         informe.alertas.append(("Baja", f"{len(multi_d)} patentes con un solo RUT pero más de un domicilio: la carta usa el de la primera fila."))
     if len(meses) > 1:
         informe.alertas.append(("Alta", "Infracciones de más de un mes (" + ", ".join(f"{k}: {v}" for k, v in meses.items()) +
                                 "): el motor solo procesa el mes predominante; el resto sale como «otro mes»."))
+    juz = {"1er juzgado (días 1–10)": dias.get("1–10", 0), "2do juzgado (días 11–20)": dias.get("11–20", 0),
+           "3er juzgado (días 21–31)": dias.get("21–31", 0)}
+    informe.alertas.append(("Info", "Filas por rango de días de la infracción: " + "; ".join(f"{k}: {v}" for k, v in juz.items()) + "."))
     if len(dias) == 1:
-        informe.alertas.append(("Alta", f"Todas las fechas de infracción caen en los días {dias.index[0]}: con la regla por día del motor, "
-                                "todas las patentes irían a un solo juzgado."))
+        informe.alertas.append(("Media", f"Todas las fechas de infracción caen en los días {dias.index[0]}: la nómina solo da cartas "
+                                "al juzgado de ese rango; subida a otro juzgado, el motor no encontrará patentes."))
     for col in ("HORA INFRACCIÓN", "MARCA DEL VEHÍCULO", "MODELO DEL VEHÍCULO"):
         informe.alertas.append(("Info", f"{col}: los reportes no la traen; sale vacía."))
     informe.revisar["Distribución"] = pd.concat([

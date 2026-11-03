@@ -10,8 +10,32 @@ from .columnas import get_col, parsear_fecha
 from .multas import buscar_multa
 
 
+def _rut_de(row):
+    """RUT de la fila, comparable (sin puntos, en mayúscula, con DV si va aparte)."""
+    rut, dv = get_col(row, "RUT"), get_col(row, "DV")
+    texto = f"{rut}-{dv}" if rut and dv else rut
+    return texto.replace(".", "").replace(" ", "").upper()
+
+
+def _claves_por_patente(df):
+    """{patente: [RUT en orden de aparición]} para las patentes que figuran
+    con más de un RUT: vendida a otra persona = otra carta."""
+    ruts = {}
+    for _, row in df.iterrows():
+        pat = get_col(row, "PATENTE").upper().strip()
+        rut = _rut_de(row)
+        if pat and rut and rut not in ruts.setdefault(pat, []):
+            ruts[pat].append(rut)
+    return {pat: lista for pat, lista in ruts.items() if len(lista) > 1}
+
+
 def construir_grupos(df, tabla_multas, utm_multa_defecto):
     """Devuelve (grupos, patentes_sin_causas_validas, avisos).
+
+    Una patente con más de un RUT en la nómina (el vehículo cambió de dueño)
+    forma un grupo por RUT: cada persona recibe su propia carta con sus
+    propias causas. La clave del grupo es la patente, o «PATENTE · RUT» en
+    ese caso; `grupo["placa"]` siempre trae la patente.
 
     Una fila se considera CAUSA VÁLIDA solo si trae N° de parte o fecha de
     infracción; si no trae ninguno de los dos, se descarta (no se cuenta ni
@@ -22,12 +46,22 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
     errores_patente = []
     causas_vacias = 0
     avisos_no_encontrados = set()
+    varios_rut = _claves_por_patente(df)
+    filas_sin_rut = 0
 
     for idx, row in df.iterrows():
         pat = get_col(row, "PATENTE").upper().strip()
         if not pat:
             errores_patente.append(idx + 2)
             continue
+
+        placa = pat
+        if pat in varios_rut:
+            rut_fila = _rut_de(row)
+            if not rut_fila:
+                filas_sin_rut += 1
+            # Una fila sin RUT en una patente con varios queda con el primero.
+            pat = f"{placa} · {rut_fila or varios_rut[placa][0]}"
 
         nro_parte_row = get_col(row, "NRO_PARTE")
         fecha_row = get_col(row, "FECHA_INF")
@@ -42,6 +76,7 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
             rut = get_col(row, "RUT")
             dv = get_col(row, "DV")
             grupos[pat] = {
+                "placa": placa,
                 "digPat": get_col(row, "DIG_PAT"),
                 "rol_raw": get_col(row, "ROL"),
                 "reg_raw": get_col(row, "REG"),
@@ -50,7 +85,9 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 "domicilio": get_col(row, "DOMICILIO") or "—",
                 "comuna": get_col(row, "COMUNA") or "—",
                 # "MARCA, MODELO" — así lo escriben las cartas oficiales de los Juzgados.
-                "vehiculo": ", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")])) or "—",
+                # Sin marca ni modelo, el tipo de vehículo de la nómina.
+                "vehiculo": (", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")]))
+                             or get_col(row, "TIPO_VEH") or "—"),
                 "causas": [],
                 # Fechas de citación que trae la nómina (ISO), para elegir la de la carta.
                 "citaciones": [],
@@ -99,6 +136,8 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
         "filas_sin_patente": len(errores_patente),
         "causas_vacias": causas_vacias,
         "patentes_sin_causas_validas": len(patentes_sin_causas),
+        "patentes_con_varios_rut": len(varios_rut),
+        "filas_sin_rut_en_patente_con_varios_rut": filas_sin_rut,
         # Patentes (no filas) sin ninguna fecha legible: no se pueden asignar a un juzgado.
         "patentes_con_fecha_ilegible": sum(1 for g in grupos.values() if "mes" not in g),
         "disposiciones_sin_multa_definida": sorted(avisos_no_encontrados),
@@ -145,7 +184,9 @@ def expandir_en_paginas(grupos, max_causas_por_pagina):
         total_causas = len(causas)
         for i, chunk in enumerate(chunks, 1):
             paginas.append({
-                "patente": pat, "info": info, "chunk": chunk,
+                # `clave` identifica el grupo (patente, o «PATENTE · RUT»);
+                # `patente` es la placa que se imprime.
+                "clave": pat, "patente": info.get("placa", pat), "info": info, "chunk": chunk,
                 "parte": i, "total_partes": total_partes, "total_causas": total_causas,
             })
     return paginas

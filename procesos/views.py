@@ -134,6 +134,8 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
             cargo_firma=datos["cargo_firma"],
             n_cartas_paquete=datos.get("n_cartas_paquete") or 0,
             repetidas=datos.get("repetidas") or "",
+            reg=datos["reg"].strip(),
+            bloques_audiencia=datos.get("bloques_audiencia") or [],
         )
         if datos.get("nomina"):
             solicitud.archivo_nomina = datos["nomina"]

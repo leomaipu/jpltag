@@ -993,6 +993,12 @@ input[type="file"]::file-selector-button:hover {
   display: block;
 }
 
+/* las fechas de audiencia no van en la carta de sentencia */
+.tarjetas-tipo:has(input[value="SENTENCIA"]:checked) ~ .no-sentencia,
+.es-sentencia .no-sentencia {
+  display: none;
+}
+
 .pasos {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

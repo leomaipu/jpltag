@@ -28,7 +28,7 @@ from nucleo.models import BloqueHorario, Rol
 from procesos import generacion
 from procesos.models import ArchivoGenerado, GeneracionCartas
 
-from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar
+from .fixtures import construir_nomina_xlsx, crear_juzgado, crear_usuario, fila_nomina, ingresar, CAMPOS_REG_Y_AUDIENCIA
 
 _TMP_SALIDAS = tempfile.mkdtemp(prefix="jpltag-pruebas-salidas-generacion-")
 
@@ -61,7 +61,7 @@ class _Base(TestCase):
             "tipo_carta": tipo,
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA",
-            "n_cartas_paquete": 50,
+            "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         }
         if tipo == "SENTENCIA":
             datos["fecha_audiencia"] = date.today().isoformat()
@@ -287,7 +287,7 @@ class EnvioRepetidoTest(_Base):
         return self.client.post("/subir/", {
             "juzgado": "jpl1", "nomina_guardada": token, "repetidas": repetidas,
             "tipo_carta": "CITACION", "nombre_firmante": "Secretaria de Prueba",
-            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         }, follow=True)
 
     def test_generar_solo_las_que_faltan(self):
@@ -350,7 +350,7 @@ class EnvioRepetidoTest(_Base):
         resp = self.client.post("/subir/", {
             "juzgado": "jpl1", "nomina_guardada": token, "repetidas": "incluir",
             "tipo_carta": "CITACION_SENTENCIA", "nombre_firmante": "Secretaria de Prueba",
-            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         })
         self.assertContains(resp, "Faltan 2 cupos")
         self.assertContains(resp, "quedó guardada")
@@ -363,7 +363,7 @@ class EnvioRepetidoTest(_Base):
         self.client.post("/subir/", {
             "juzgado": "jpl1", "nomina_guardada": nuevo_token, "repetidas": "incluir",
             "tipo_carta": "CITACION_SENTENCIA", "nombre_firmante": "Secretaria de Prueba",
-            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+            "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         })
         self.assertEqual(GeneracionCartas.objects.count(), 2)
 
@@ -374,7 +374,7 @@ class EnvioRepetidoTest(_Base):
     def test_un_token_alterado_no_sirve(self):
         resp = self.client.post("/subir/", {
             "juzgado": "jpl1", "nomina_guardada": "jpl2/otra:alterado", "repetidas": "incluir",
-            "tipo_carta": "CITACION", "nombre_firmante": "X", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+            "tipo_carta": "CITACION", "nombre_firmante": "X", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         })
         self.assertContains(resp, "La nómina guardada ya no está disponible")
 
@@ -502,7 +502,7 @@ class PatentesSinJuzgadoTest(_Base):
         ]
         resp = self.client.post("/subir/", {
             "nomina": construir_nomina_xlsx(filas), "tipo_carta": "CITACION",
-            "nombre_firmante": "Ana", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50,
+            "nombre_firmante": "Ana", "cargo_firma": "SECRETARIA", "n_cartas_paquete": 50, **CAMPOS_REG_Y_AUDIENCIA,
         }, follow=True)
         corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.avisos["fuera_de_todo_rango"], 1)

@@ -336,15 +336,7 @@ def armar_nomina(ruta_ingresos, ruta_causas, citaciones_por_bloque=None):
     return nomina, informe
 
 
-def _todo_como_texto(libro):
-    """openpyxl vuelve fórmula cualquier texto que empiece con «=». Los datos de
-    los reportes son texto (nombre, dirección, patente…): se dejan como texto,
-    sin perder nada y sin que Excel ejecute lo que venga en ellos."""
-    for ws in libro.worksheets:
-        for fila in ws.iter_rows():
-            for c in fila:
-                if c.data_type == "f" and isinstance(c.value, str):
-                    c.data_type = "s"
+from .excel_seguro import todo_como_texto as _todo_como_texto  # noqa: E402
 
 
 def escribir_nomina(nomina, ruta):

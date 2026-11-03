@@ -39,7 +39,7 @@
     <a class="btn" href="{% url 'procesos:descargar_nomina_armada' 'nomina' resultado.token %}?juzgado={{ juzgado.slug }}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>Descargar la nómina</a>
     <a class="btn" href="{% url 'procesos:descargar_nomina_armada' 'informe' resultado.token %}?juzgado={{ juzgado.slug }}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>Descargar el informe</a>
   </div>
-  <p class="campo__ayuda mt">La nómina queda guardada 12 horas para generar las cartas; después se borra porque trae datos personales. El informe lista cada fila excluida con su motivo.</p>
+  <p class="campo__ayuda mt">La nómina queda guardada 12 horas para generar las cartas; si no se usa, se borra porque trae datos personales. Al generar las cartas, la nómina y el informe quedan guardados con la generación. El informe lista cada fila excluida con su motivo.</p>
 </section>
 
 {% if resultado.alertas %}

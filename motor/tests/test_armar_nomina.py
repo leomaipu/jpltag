@@ -225,5 +225,16 @@ class ArmarNominaTest(unittest.TestCase):
         self.assertEqual(g["causas"][0]["lugar"], "Pórtico 1")
 
 
+class ExcelSeguroTest(unittest.TestCase):
+    def test_los_excel_de_salida_no_tienen_formulas(self):
+        from openpyxl import load_workbook
+        from motor.excel_seguro import df_a_xlsx
+        ruta = Path(tempfile.mkdtemp()) / "s.xlsx"
+        df_a_xlsx(pd.DataFrame({"Patente": ["=1+1", "+5", "@SUM(1)"], "Rol": ['=HYPERLINK("http://x")', "-2", "ok"]}), ruta)
+        ws = load_workbook(ruta).active
+        self.assertEqual({c.data_type for f in ws.iter_rows(min_row=2) for c in f}, {"s"})
+        self.assertEqual(pd.read_excel(ruta, dtype=object).iloc[0]["Patente"], "=1+1")
+
+
 if __name__ == "__main__":
     unittest.main()

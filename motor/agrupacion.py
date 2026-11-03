@@ -4,14 +4,40 @@ la nómina, y filtrado por el rango de días que le corresponde a cada
 juzgado. Porteado de generar_notificaciones_JPL1.py.
 """
 
+import re
 from collections import Counter
 
 from .columnas import get_col, parsear_fecha
 from .multas import buscar_multa
 
 
+def _rut_de(row):
+    """(clave comparable, texto original) del RUT de la fila. La clave no
+    tiene puntos, espacios, guion ni ceros a la izquierda y va en mayúscula."""
+    rut, dv = get_col(row, "RUT"), get_col(row, "DV")
+    texto = f"{rut}-{dv}" if rut and dv else rut
+    return re.sub(r"[.\s-]", "", texto).upper().lstrip("0"), texto
+
+
+def _claves_por_patente(df):
+    """{patente: {clave de RUT: texto original}} para las patentes que figuran
+    con más de un RUT: vehículo vendido a otra persona = otra carta."""
+    ruts = {}
+    for _, row in df.iterrows():
+        pat = get_col(row, "PATENTE").upper().strip()
+        clave, texto = _rut_de(row)
+        if pat and clave:
+            ruts.setdefault(pat, {}).setdefault(clave, texto)
+    return {pat: d for pat, d in ruts.items() if len(d) > 1}
+
+
 def construir_grupos(df, tabla_multas, utm_multa_defecto):
     """Devuelve (grupos, patentes_sin_causas_validas, avisos).
+
+    Una patente con más de un RUT en la nómina (el vehículo cambió de dueño)
+    forma un grupo por RUT: cada persona recibe su propia carta con sus
+    propias causas. La clave del grupo es la patente, o «PATENTE · RUT» en
+    ese caso; `grupo["placa"]` siempre trae la patente.
 
     Una fila se considera CAUSA VÁLIDA solo si trae N° de parte o fecha de
     infracción; si no trae ninguno de los dos, se descarta (no se cuenta ni
@@ -22,12 +48,23 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
     errores_patente = []
     causas_vacias = 0
     avisos_no_encontrados = set()
+    varios_rut = _claves_por_patente(df)
+    filas_sin_rut = 0
 
     for idx, row in df.iterrows():
         pat = get_col(row, "PATENTE").upper().strip()
         if not pat:
             errores_patente.append(idx + 2)
             continue
+
+        placa = pat
+        if pat in varios_rut:
+            clave_rut, _ = _rut_de(row)
+            if not clave_rut:
+                filas_sin_rut += 1
+                # Una fila sin RUT en una patente con varios queda con el primero.
+                clave_rut = next(iter(varios_rut[placa]))
+            pat = f"{placa} · {varios_rut[placa][clave_rut]}"
 
         nro_parte_row = get_col(row, "NRO_PARTE")
         fecha_row = get_col(row, "FECHA_INF")
@@ -42,6 +79,7 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
             rut = get_col(row, "RUT")
             dv = get_col(row, "DV")
             grupos[pat] = {
+                "placa": placa,
                 "digPat": get_col(row, "DIG_PAT"),
                 "rol_raw": get_col(row, "ROL"),
                 "reg_raw": get_col(row, "REG"),
@@ -50,9 +88,23 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 "domicilio": get_col(row, "DOMICILIO") or "—",
                 "comuna": get_col(row, "COMUNA") or "—",
                 # "MARCA, MODELO" — así lo escriben las cartas oficiales de los Juzgados.
-                "vehiculo": ", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")])) or "—",
+                # Sin marca ni modelo, el tipo de vehículo de la nómina.
+                "vehiculo": (", ".join(filter(None, [get_col(row, "MARCA"), get_col(row, "MODELO")]))
+                             or get_col(row, "TIPO_VEH") or "—"),
                 "causas": [],
+                # Fechas de citación que trae la nómina (ISO), para elegir la de la carta.
+                "citaciones": [],
             }
+
+        cita_row = get_col(row, "FECHA_CITA")
+        if cita_row:
+            a_c, m_c, d_c = parsear_fecha(cita_row)
+            if a_c:
+                iso = f"{a_c:04d}-{m_c:02d}-{d_c:02d}"
+                if iso not in grupos[pat]["citaciones"]:
+                    grupos[pat]["citaciones"].append(iso)
+            else:
+                grupos[pat]["citacion_ilegible"] = True
 
         disposicion_row = get_col(row, "DISPOSICION") or "—"
         grupos[pat]["causas"].append({
@@ -72,6 +124,13 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 grupos[pat]["mes"] = mes
                 grupos[pat]["dia"] = dia
 
+    for g in grupos.values():
+        # Regla provisoria: con fechas distintas en una misma patente, la más
+        # temprana; el resultado avisa para que el juzgado decida (ver generacion).
+        if g["citaciones"]:
+            a_c, m_c, d_c = (int(x) for x in min(g["citaciones"]).split("-"))
+            g["citacion"] = f"{d_c:02d}/{m_c:02d}/{a_c:04d}"
+
     patentes_sin_causas = {pat: g for pat, g in grupos.items() if not g["causas"]}
     for pat in patentes_sin_causas:
         del grupos[pat]
@@ -80,6 +139,8 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
         "filas_sin_patente": len(errores_patente),
         "causas_vacias": causas_vacias,
         "patentes_sin_causas_validas": len(patentes_sin_causas),
+        "patentes_con_varios_rut": len(varios_rut),
+        "filas_sin_rut_en_patente_con_varios_rut": filas_sin_rut,
         # Patentes (no filas) sin ninguna fecha legible: no se pueden asignar a un juzgado.
         "patentes_con_fecha_ilegible": sum(1 for g in grupos.values() if "mes" not in g),
         "disposiciones_sin_multa_definida": sorted(avisos_no_encontrados),
@@ -126,7 +187,9 @@ def expandir_en_paginas(grupos, max_causas_por_pagina):
         total_causas = len(causas)
         for i, chunk in enumerate(chunks, 1):
             paginas.append({
-                "patente": pat, "info": info, "chunk": chunk,
+                # `clave` identifica el grupo (patente, o «PATENTE · RUT»);
+                # `patente` es la placa que se imprime.
+                "clave": pat, "patente": info.get("placa", pat), "info": info, "chunk": chunk,
                 "parte": i, "total_partes": total_partes, "total_causas": total_causas,
             })
     return paginas

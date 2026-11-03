@@ -18,7 +18,7 @@ from django.test import TestCase, override_settings
 from nucleo.models import BloqueHorario, Rol
 from procesos.forms import PlantillaJuzgadoForm
 
-from .fixtures import crear_juzgado, crear_usuario, ingresar
+from .fixtures import crear_juzgado, crear_usuario, ingresar, CAMPOS_REG_Y_AUDIENCIA
 
 PROHIBIDO_INLINE = [
     (re.compile(r"<style\b", re.I), "bloque <style>"),
@@ -190,7 +190,7 @@ class ComportamientosNuevosTest(TestCase):
                 self.assertLogs("procesos.generacion", level="ERROR"):
             resp = self.client.post("/subir/", {
                 "juzgado": "jpl1", "tipo_carta": "CITACION", "nombre_firmante": "Ana",
-                "cargo_firma": "SECRETARIO", "n_cartas_paquete": "0",
+                "cargo_firma": "SECRETARIO", "n_cartas_paquete": "0", **CAMPOS_REG_Y_AUDIENCIA,
                 "nomina": SimpleUploadedFile("nomina.xlsx", b"esto no es un excel"),
             }, follow=True)
         html = resp.content.decode()

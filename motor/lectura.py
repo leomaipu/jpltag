@@ -9,30 +9,25 @@ orden ya se verificó explícitamente en el diagnóstico del 18-ago-2026.
 
 import pandas as pd
 
-from .columnas import COLUMNA_ROL_MUN, MAPEO, ROL_MUNICIPAL, buscar_rol_municipal
+from .columnas import MAPEO, columna_rol
 
 
 def leer_nomina(ruta_o_archivo) -> pd.DataFrame:
     """Lee el Excel de nómina y reemplaza vacíos por cadena vacía, igual que
     hacen los 6 scripts (`pd.read_excel(ruta_excel).fillna("")`).
 
-    La columna del ROL municipal (valores «…-MUN», sin encabezado en la
-    nómina de la DAF) queda con un nombre que el mapeo reconoce; un valor
-    suyo que no tenga esa forma queda vacío (la carta dirá PENDIENTE). Lo que
-    haya que avisar de esa columna queda en df.attrs["avisos_lectura"]."""
+    El ROL de cada causa es el valor de la columna «ROL» de la nómina (se
+    imprime tal cual). Si la columna falta, o trae valores vacíos, se anota
+    en df.attrs["avisos_lectura"] y la carta dice PENDIENTE en esas causas."""
     df = pd.read_excel(ruta_o_archivo).fillna("")
-    rol = buscar_rol_municipal(df)
     avisos = {}
-    if rol is None:
-        avisos["rol_municipal_no_encontrado"] = True
+    col = columna_rol(df)
+    if col is None:
+        avisos["rol_no_encontrado"] = True
     else:
-        df = df.rename(columns={rol.columna: COLUMNA_ROL_MUN})
-        valores = df[COLUMNA_ROL_MUN].astype(str).str.strip()
-        df[COLUMNA_ROL_MUN] = valores.where(valores.str.contains(ROL_MUNICIPAL), "")
-        if rol.sin_formato:
-            avisos["rol_municipal_sin_formato"] = rol.sin_formato
-        if rol.otras_candidatas:
-            avisos["rol_municipal_otras_columnas"] = [str(c) for c in rol.otras_candidatas]
+        vacios = int((df[col].astype(str).str.strip() == "").sum())
+        if vacios:
+            avisos["rol_vacios"] = vacios
     df.attrs["avisos_lectura"] = avisos
     return df
 

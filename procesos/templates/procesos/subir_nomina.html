@@ -31,6 +31,9 @@
   <input type="hidden" name="nombre_firmante" value="{{ form.nombre_firmante.value }}">
   <input type="hidden" name="cargo_firma" value="{{ form.cargo_firma.value }}">
   <input type="hidden" name="n_cartas_paquete" value="{{ form.n_cartas_paquete.value }}">
+  <input type="hidden" name="reg" value="{{ form.reg.value|default:'' }}">
+  <input type="hidden" name="fechas_audiencia" value="{{ form.fechas_audiencia.value|default:'' }}">
+  <input type="hidden" name="cartas_por_fecha" value="{{ form.cartas_por_fecha.value|default:'' }}">
   <section class="bloque" role="alert" aria-labelledby="repetir-titulo" tabindex="-1" data-enfocar>
     <h2 id="repetir-titulo" class="seccion__titulo">{% if repetido.es_pregunta %}Hay patentes que ya recibieron carta{% else %}Falta algo para seguir{% endif %}</h2>
     <p class="texto-suave">{{ repetido.mensaje }}</p>
@@ -87,10 +90,10 @@
           <span class="opcion__titulo">{{ radio.choice_label }}</span>
           {% if radio.data.value == "CITACION" %}
           <span class="opcion__texto">Cita al infractor a una audiencia.</span>
-          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">A coordinar</span>{% endif %}</span>
+          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">Fecha del Juzgado</span>{% endif %}</span>
           {% elif radio.data.value == "CITACION_SENTENCIA" %}
           <span class="opcion__texto">Cita a audiencia y avisa que, si no concurre, queda condenado.</span>
-          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">A coordinar</span>{% endif %}</span>
+          <span class="opcion__marcas">{% if agenda_activa %}<span class="chip">Usa la agenda</span>{% else %}<span class="chip">Fecha del Juzgado</span>{% endif %}</span>
           {% else %}
           <span class="opcion__texto">Notifica la sentencia ya dictada.</span>
           <span class="opcion__marcas"><span class="chip">Sin agenda</span><span class="chip">Pide la fecha</span></span>
@@ -99,12 +102,34 @@
         {% endfor %}
       </div>
       {{ form.tipo_carta.errors }}
-      {% if not agenda_activa %}<p class="campo__ayuda">Por ahora las cartas no usan la agenda: la audiencia sale «en fecha y hora a coordinar con el Juzgado» y no se toman cupos.</p>{% endif %}
+      {% if not agenda_activa %}<p class="campo__ayuda">Por ahora las cartas no usan la agenda: la audiencia sale con la fecha que fijó el Juzgado, sin hora, y no se toman cupos.</p>{% endif %}
+      <div class="campo no-sentencia">
+        <label for="{{ form.fechas_audiencia.id_for_label }}">Fechas de audiencia</label>
+        {{ form.fechas_audiencia }}
+        <span class="campo__ayuda" id="{{ form.fechas_audiencia.auto_id }}_helptext">{{ form.fechas_audiencia.help_text }}</span>
+        {{ form.fechas_audiencia.errors }}
+      </div>
+      <div class="campo no-sentencia">
+        <label for="{{ form.cartas_por_fecha.id_for_label }}">Cartas por fecha</label>
+        {{ form.cartas_por_fecha }}
+        <span class="campo__ayuda" id="{{ form.cartas_por_fecha.auto_id }}_helptext">{{ form.cartas_por_fecha.help_text }}</span>
+        {{ form.cartas_por_fecha.errors }}
+      </div>
       <div class="campo solo-sentencia">
         <label for="{{ form.fecha_audiencia.id_for_label }}">Fecha de la sentencia</label>
         {{ form.fecha_audiencia }}
         <span class="campo__ayuda" id="{{ form.fecha_audiencia.auto_id }}_helptext">{{ form.fecha_audiencia.help_text }}</span>
         {{ form.fecha_audiencia.errors }}
+      </div>
+    </section>
+
+    <section class="paso bloque">
+      <h2 class="seccion__titulo">Reg N°<small>El número de registro del sobre; sube de 1 en 1 en cada carta.</small></h2>
+      <div class="campo">
+        <label for="{{ form.reg.id_for_label }}">Reg N° de la primera carta</label>
+        {{ form.reg }}
+        <span class="campo__ayuda" id="{{ form.reg.auto_id }}_helptext">{{ form.reg.help_text }}</span>
+        {{ form.reg.errors }}
       </div>
     </section>
 

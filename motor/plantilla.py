@@ -222,7 +222,6 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
     else:
         fecha_aud, hora_aud = slot_audiencia
     hora_txt = f"{hora_aud} hrs." if hora_aud else ""
-    anio_actual = ahora_chile().year
     reg = info.get("reg_raw") or "«folio carta trámite»"
     utm_total = sum(c["monto"] for c in info["causas"])
 
@@ -274,7 +273,7 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
         "causas": [
             {
                 "nro_parte": c["nroParte"],
-                "rol": formatear_rol(c.get("rol_raw"), anio_actual),
+                "rol": formatear_rol(c.get("rol_raw")),
                 "fecha": c["fecha"],
                 "hora": c["hora"],
                 "lugar": c["lugar"],
@@ -336,7 +335,9 @@ def renderizar_carta(ruta_plantilla, contexto, config):
     hay_firma = bool(ctx["firma_foto"])
     ctx["linea_firma"] = "" if hay_firma else LINEA_FIRMA_DEFECTO
     ctx["firma_img"] = ctx["firma_foto"] if hay_firma else LINEA_FIRMA_DEFECTO
-    tpl.render(ctx)
+    # autoescape: un «&» o «<» en un nombre o en el Reg N° rompería el XML del
+    # Word y la carta saldría con el texto cortado, sin ningún error.
+    tpl.render(ctx, autoescape=True)
     # ¡Nunca tpl.get_docx() después de render()! get_docx() llama a
     # init_docx(reload=True), que como is_rendered ya quedó en True acá
     # vuelve a LEER la plantilla original sin renderizar, pisando el
@@ -513,15 +514,16 @@ class ErrorEnLote(Exception):
 def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
     """Filas del Excel de seguimiento de un lote: una por causa, con el N° de
     Carta de su patente (correlativo desde `primera_carta`)."""
-    anio_actual = ahora_chile().year
     return [
         {
             "Lote": num_lote,
             "N° de Carta": numero_carta,
             "Tipo de carta": tipo_carta,
-            "Patente": patente,
+            "Patente": info.get("placa", patente),
+            "RUT": info.get("rut", ""),
+            "Reg N°": info.get("reg_raw", ""),
             "N° de Parte": causa["nroParte"],
-            "Rol": formatear_rol(causa.get("rol_raw"), anio_actual),
+            "Rol": formatear_rol(causa.get("rol_raw")),
         }
         for numero_carta, (patente, info) in enumerate(lote_patentes, primera_carta)
         for causa in info["causas"]
@@ -535,8 +537,8 @@ def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plan
     numero_por_patente = {pat: n for n, (pat, _) in enumerate(lote_patentes, primera_carta)}
     documentos_carta = []
     for pg in expandir_en_paginas(dict(lote_patentes), max_causas):
-        slot = slots.get(pg["patente"], SLOT_SIN_AGENDA)
-        contexto = construir_contexto(pg, slot, numero_por_patente[pg["patente"]], config)
+        slot = slots.get(pg["clave"], SLOT_SIN_AGENDA)
+        contexto = construir_contexto(pg, slot, numero_por_patente[pg["clave"]], config)
         documentos_carta.append(renderizar_carta(ruta_plantilla, contexto, config))
     # Se escribe aparte y se renombra al final: si el proceso muere a mitad
     # de guardar, no queda un .docx truncado con el nombre definitivo (al

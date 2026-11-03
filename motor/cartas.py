@@ -14,7 +14,8 @@ cada carta.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .columnas import ROL_MUNICIPAL
+from .columnas import parsear_fecha
+
 
 # Las cartas llevan la fecha de Chile aunque el servidor ande en UTC.
 ZONA_CHILE = ZoneInfo("America/Santiago")
@@ -68,20 +69,19 @@ def patente_completa(pat, dig_pat):
 
 
 def clausula_audiencia(fecha_aud, hora_txt):
-    """Evita dejar '...a las , bajo apercibimiento...' cuando no hay hora
-    asignada (caso SLOT_SIN_AGENDA)."""
-    if hora_txt:
-        return f"el día {fecha_aud}, a las {hora_txt}"
+    """La audiencia de la carta. Con fecha y hora (agenda): «el día X, a las
+    Y». Solo con fecha (la que fija el juzgado en SMC y viene en la nómina):
+    «el día X». Sin fecha, o con el marcador SLOT_SIN_AGENDA: «a coordinar»."""
+    fecha = str(fecha_aud or "").strip()
+    if fecha and parsear_fecha(fecha)[0]:
+        if hora_txt:
+            return f"el día {fecha}, a las {hora_txt}"
+        return f"el día {fecha}"
     return "en fecha y hora a coordinar con el Juzgado"
 
 
-def formatear_rol(rol_raw, anio):
-    """El ROL municipal de la nómina («3090675-MUN») va tal cual. Un folio de
-    proceso suelto sigue el formato «Folio_Proceso»-T-«Año_Proceso». Si no
-    hay ninguno, "PENDIENTE", para que quede clarísimo en la carta que ese
-    dato falta completar."""
-    if rol_raw and ROL_MUNICIPAL.search(rol_raw):
-        return rol_raw
-    if rol_raw:
-        return f"{rol_raw}-T-{anio}"
-    return "PENDIENTE"
+def formatear_rol(rol_raw):
+    """El ROL de la nómina («13Y95046/26») va tal cual. Si la causa no trae
+    ROL, "PENDIENTE", para que quede clarísimo en la carta que ese dato falta."""
+    rol = str(rol_raw or "").strip()
+    return rol or "PENDIENTE"

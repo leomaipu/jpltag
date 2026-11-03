@@ -58,6 +58,10 @@ from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from motor.agenda import SLOT_SIN_AGENDA, asignar_agenda
+from motor.cartas import ahora_chile
+from motor.columnas import tiene_columna
+from motor.audiencias import fecha_de_carta, fecha_de_rol, fechas_necesarias
+from motor.reg import reg_para_carta
 from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtrar_por_rango_dias
 from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
@@ -149,6 +153,14 @@ class SolicitudGeneracion:
     nomina_guardada: str = ""
     nombre_nomina: str = ""
     repetidas: str = ""   # "", OMITIR_REPETIDAS o INCLUIR_REPETIDAS
+    # Lo que entrega el Juzgado y se escribe en las cartas: el «Reg N°» del
+    # sobre y las fechas de audiencia [(folio_desde, folio_hasta, date)].
+    reg: str = ""                 # el de la primera carta; sube de 1 en 1
+    bloques_audiencia: list = field(default_factory=list)
+    # Reparto por tandas: la primera `cartas_por_fecha` cartas citan a la
+    # primera fecha de `fechas_tanda`, las siguientes a la segunda, etc.
+    fechas_tanda: list = field(default_factory=list)
+    cartas_por_fecha: int = 0
 
     def __post_init__(self):
         if self.archivo_nomina is not None and not self.nombre_nomina:
@@ -507,7 +519,24 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         # El paquete se revisa antes de preguntar por las repetidas: así no se
         # pregunta algo para rechazarlo después.
         _revisar_paquete(len(incluidos), solicitud.n_cartas_paquete)
+        # Antes de preguntar por las repetidas (peor caso: se incluyen todas): la
+        # pantalla de repetidas no permite corregir fechas.
+        if solicitud.fechas_tanda and tipo_carta != TipoCarta.SENTENCIA and not settings.JPLTAG_AGENDA_ACTIVA:
+            necesarias = fechas_necesarias(len(incluidos), solicitud.cartas_por_fecha)
+            if necesarias > len(solicitud.fechas_tanda):
+                raise GeneracionRechazada(
+                    f"Son {len(incluidos)} cartas y con {solicitud.cartas_por_fecha} cartas por fecha se necesitan "
+                    f"{necesarias} fechas de audiencia; escribiste {len(solicitud.fechas_tanda)}. "
+                    f"Agrega fechas o sube «Cartas por fecha»."
+                )
         incluidos = _resolver_repetidas(juzgado, solicitud, anio_pred, mes_pred, incluidos)
+        if solicitud.reg:
+            avisos = {**avisos, "reg_desde": reg_para_carta(solicitud.reg, 0),
+                      "reg_hasta": reg_para_carta(solicitud.reg, len(incluidos) - 1)}
+            # Un Reg N° por carta física, correlativo en el orden de las cartas
+            # (el mismo del N° de Carta); lo comparten sus páginas «parte X de N».
+            for i, g in enumerate(incluidos.values()):
+                g["reg_raw"] = reg_para_carta(solicitud.reg, i)
 
         fuera_de_rango = _fuera_de_todo_rango(otro_rango)
         avisos = dict(avisos)
@@ -548,10 +577,19 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             # La sentencia ya está dictada: no cita a ninguna audiencia. Con
             # la agenda apagada, toda citación sale «a coordinar». En ambos
             # casos no se asigna agenda ni se gastan cupos.
+            reserva = _Reserva()
             if tipo_carta != TipoCarta.SENTENCIA:
                 avisos["agenda_desactivada"] = True
+                # La fecha de citación la fija el Juzgado en SMC y viene en la
+                # nómina (sin hora): la carta la imprime tal cual.
+                reserva.slots, avisos_citacion = _citaciones_de_la_nomina(df_limpio, incluidos, solicitud.bloques_audiencia,
+                                                                        (solicitud.fechas_tanda, solicitud.cartas_por_fecha))
+                avisos.update(avisos_citacion)
             with transaction.atomic():
-                return _encolar(_Reserva())
+                return _encolar(reserva)
+        if solicitud.bloques_audiencia or tiene_columna(df_limpio, "FECHA_CITA"):
+            # Con la agenda activa manda la agenda; que la persona lo sepa.
+            avisos["citacion_ignorada_por_agenda"] = True
         _, corrida = reservar_agenda(
             juzgado, incluidos, _encolar,
             exigir_cupo_para_todas=(tipo_carta == TipoCarta.CITACION_SENTENCIA),
@@ -564,6 +602,80 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
         # no quedó ningún cupo tomado.
         logger.exception("Falló la preparación de cartas (%s)", juzgado.slug)
         return _registrar_fallo(juzgado, usuario, solicitud, carpeta_rel, mensaje_para_personas(exc))
+
+
+def _citaciones_de_la_nomina(df, incluidos, bloques=(), tandas=((), 0)):
+    """{patente: (fecha, "")} con la fecha de audiencia de cada carta, y los
+    avisos para que la persona revise.
+
+    1. Las fechas que la persona escribió al generar (por bloque de folios)
+       mandan: la causa toma la fecha del bloque de su ROL.
+    2. Si ninguna causa de la patente cae en un bloque, o no se escribieron
+       fechas, se usa la FECHA CITACIÓN de la nómina, siempre que sea de hoy
+       en adelante: una audiencia ya pasada no se imprime.
+    3. Sin ninguna de las dos, la carta sale «a coordinar con el Juzgado».
+    Con fechas distintas dentro de una patente se usa la más temprana."""
+    hoy = ahora_chile().date()
+    slots, avisos = {}, {}
+    fechas_tanda, por_fecha = tandas
+    if fechas_tanda:
+        # El Juzgado reparte por cantidad de cartas: no importa el ROL ni la nómina.
+        reparto = Counter()
+        for i, pat in enumerate(incluidos):
+            fecha = fecha_de_carta(fechas_tanda, por_fecha, i)
+            slots[pat] = (fecha.strftime("%d/%m/%Y"), "")
+            reparto[fecha] += 1
+        avisos["audiencia_por_tandas"] = [[f.strftime("%d/%m/%Y"), n] for f, n in sorted(reparto.items())]
+        return slots, avisos
+    pendientes = incluidos
+    if bloques:
+        avisos["audiencia_desde_formulario"] = True
+        pendientes, distintas, causas_fuera = {}, [], 0
+        for pat, g in incluidos.items():
+            fechas = [fecha_de_rol(bloques, c.get("rol_raw")) for c in g["causas"]]
+            cubiertas = [f for f in fechas if f]
+            causas_fuera += len(fechas) - len(cubiertas)
+            if cubiertas:
+                slots[pat] = (min(cubiertas).strftime("%d/%m/%Y"), "")
+                if len(set(cubiertas)) > 1:
+                    distintas.append(g.get("placa", pat))
+            else:
+                pendientes[pat] = g
+        if pendientes:
+            avisos["audiencia_sin_bloque"] = len(pendientes)
+        if distintas:
+            avisos["audiencia_fechas_distintas"] = len(distintas)
+            avisos["audiencia_fechas_distintas_ejemplos"] = ", ".join(sorted(distintas)[:10])
+        if causas_fuera:
+            avisos["audiencia_causas_fuera_de_bloques"] = causas_fuera
+
+    hay_columna = tiene_columna(df, "FECHA_CITA")
+    sin_fecha, distintas, pasadas = [], [], []
+    for pat, g in pendientes.items():
+        if not g.get("citacion"):
+            sin_fecha.append(pat)
+            continue
+        if date.fromisoformat(min(g["citaciones"])) < hoy:
+            pasadas.append(pat)      # no se imprime una audiencia que ya pasó
+            continue
+        slots[pat] = (g["citacion"], "")
+        if len(g["citaciones"]) > 1:
+            distintas.append(pat)
+    if pendientes:
+        if not hay_columna and not bloques:
+            avisos["citacion_sin_columna"] = True
+        if sin_fecha and hay_columna:
+            avisos["citacion_sin_fecha"] = len(sin_fecha)
+            if len(sin_fecha) == len(pendientes) and not slots:
+                avisos["citacion_ninguna"] = True
+        if distintas:
+            avisos["citacion_fechas_distintas"] = len(distintas)
+        if pasadas:
+            avisos["citacion_en_el_pasado"] = len(pasadas)
+        ilegibles = sum(1 for g in pendientes.values() if g.get("citacion_ilegible"))
+        if ilegibles:
+            avisos["citacion_ilegible"] = ilegibles
+    return slots, avisos
 
 
 def _escribir_trabajo(carpeta_abs, incluidos, slots, solicitud):

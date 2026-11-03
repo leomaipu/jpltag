@@ -7,6 +7,7 @@ rompe las dos suites a la vez, en vez de que esta quede desincronizada.
 """
 
 import io
+from datetime import date, timedelta
 
 import pandas as pd
 from django.contrib.auth import get_user_model
@@ -22,6 +23,13 @@ COLUMNAS_NOMINA = [
     "Cedula de Identidad", "Digito Verifcador", "Domicilio Infractor", "Comuna",
     "Marca del Vehiculo", "Modelo del Vehiculo",
 ]
+
+# Lo que ahora pide el formulario «Generar cartas» (Reg N° y fechas de audiencia):
+# una fecha futura única para toda la nómina.
+CAMPOS_REG_Y_AUDIENCIA = {
+    "reg": "R-1",
+    "fechas_audiencia": (date.today() + timedelta(days=60)).strftime("%d/%m/%Y"),
+}
 
 CONTRASENA_PRUEBA = "clave-de-prueba-123"  # nunca se usa fuera de las pruebas
 

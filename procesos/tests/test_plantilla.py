@@ -16,6 +16,7 @@ from motor.utm import ErrorConsultaUTM
 from nucleo.models import Rol
 
 from .fixtures import (
+    CAMPOS_REG_Y_AUDIENCIA,
     construir_nomina_xlsx,
     construir_plantilla_rota,
     construir_plantilla_valida,
@@ -163,7 +164,7 @@ class PlantillaPropiaSeUsaAlGenerarTest(TestCase):
             "tipo_carta": "CITACION",
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA",
-            "n_cartas_paquete": 0,
+            "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         }, follow=True)
         self.assertEqual(resp.status_code, 200)
 

@@ -5,6 +5,8 @@ from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.validators import MaxValueValidator
 
+from motor.audiencias import parsear_fechas_audiencia, parsear_fechas_por_tanda
+from motor.reg import validar_reg
 from motor.plantilla import MARCADOR_DESCONOCIDO, validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta, ahora_local
 
@@ -62,6 +64,28 @@ class SubirNominaForm(forms.Form):
         label="Fecha de la sentencia", required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
         help_text="Se escribe en cada carta. Una sola fecha por tanda.",
+    )
+    reg = forms.CharField(
+        label="Reg N° de la primera carta", max_length=40,
+        help_text="Escribe el de la primera carta; las demás siguen de 1 en 1 (por ejemplo 15230, 15231…).",
+        error_messages={
+            "required": "Escribe el Reg N° que se imprime en las cartas.",
+            "max_length": "El Reg N° es demasiado largo (máximo 40 caracteres).",
+        },
+    )
+    fechas_audiencia = forms.CharField(
+        label="Fechas de audiencia", required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "127795-129000 14/12/2026\n129001-131500 15/12/2026"}),
+        help_text=(
+            "Las fija el Juzgado. Por bloque de folios, una línea por bloque: «desde-hasta dd/mm/aaaa»; "
+            "una sola fecha para toda la nómina: solo la fecha. Si el Juzgado reparte por cantidad de personas, "
+            "escribe una fecha por línea y completa «Cartas por fecha». La hora no se imprime."
+        ),
+    )
+    cartas_por_fecha = forms.IntegerField(
+        label="Cartas por fecha", required=False, min_value=1, max_value=100000,
+        help_text="Opcional. Con 300, las primeras 300 cartas citan a la primera fecha, las siguientes 300 a la segunda, y así.",
+        error_messages={"min_value": "Escribe 1 o un número mayor.", "invalid": "Escribe un número entero, por ejemplo 300."},
     )
     nomina = forms.FileField(
         label="Nómina del mes (.xlsx)", required=False,
@@ -128,12 +152,34 @@ class SubirNominaForm(forms.Form):
         datos = super().clean()
         if not datos.get("nomina") and not datos.get("nomina_guardada"):
             self.add_error("nomina", "Elige el Excel de la nómina del mes.")
+        tipo = datos.get("tipo_carta")
+        texto = (datos.get("fechas_audiencia") or "").strip()
+        if tipo != TipoCarta.SENTENCIA and (texto or not settings.JPLTAG_AGENDA_ACTIVA):
+            if not texto:
+                self.add_error("fechas_audiencia", "Escribe las fechas de audiencia que fijó el Juzgado: van escritas en la carta.")
+            else:
+                try:
+                    if datos.get("cartas_por_fecha"):
+                        datos["fechas_tanda"] = parsear_fechas_por_tanda(texto)
+                    else:
+                        datos["bloques_audiencia"] = parsear_fechas_audiencia(texto)
+                except ValueError as exc:
+                    extra = ""
+                    if not datos.get("cartas_por_fecha") and len(texto.splitlines()) > 1:
+                        extra = " Si son varias fechas repartidas por cantidad de cartas, completa «Cartas por fecha»."
+                    self.add_error("fechas_audiencia", str(exc) + extra)
         if datos.get("tipo_carta") == TipoCarta.SENTENCIA and not datos.get("fecha_audiencia"):
             self.add_error(
                 "fecha_audiencia",
                 "Indica la fecha de la sentencia: va escrita en la carta.",
             )
         return datos
+
+    def clean_reg(self):
+        try:
+            return validar_reg(self.cleaned_data["reg"])
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from None
 
     def clean_nomina(self):
         return self._validar_excel(self.cleaned_data["nomina"])

@@ -17,6 +17,7 @@ from motor.plantilla import texto_de
 from nucleo.models import BloqueHorario, Rol
 
 from .fixtures import (
+    CAMPOS_REG_Y_AUDIENCIA,
     construir_nomina_xlsx,
     construir_plantilla_valida,
     crear_juzgado,
@@ -61,7 +62,7 @@ class TiposDeCartaTest(TestCase):
             "tipo_carta": tipo,
             "nombre_firmante": "Secretaria de Prueba",
             "cargo_firma": "SECRETARIA ABOGADA",
-            "n_cartas_paquete": 0,
+            "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         }
         datos.update(extra)
         return self.client.post("/subir/", datos, follow=True)
@@ -183,7 +184,7 @@ class PlantillasPorTipoTest(TestCase):
         self.client.post("/subir/", {
             "nomina": construir_nomina_xlsx([fila_nomina(pat="AAAA11", fecha="03/09/2026")]),
             "tipo_carta": "SENTENCIA", "fecha_audiencia": "2026-10-02",
-            "nombre_firmante": "X", "cargo_firma": "SECRETARIO", "n_cartas_paquete": 0,
+            "nombre_firmante": "X", "cargo_firma": "SECRETARIO", "n_cartas_paquete": 0, **CAMPOS_REG_Y_AUDIENCIA,
         })
         from procesos.models import ArchivoGenerado, GeneracionCartas
         gen = GeneracionCartas.objects.get(juzgado=self.juzgado)

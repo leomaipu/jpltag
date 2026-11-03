@@ -1,6 +1,5 @@
 """
-El ROL municipal de la nómina (la columna sin encabezado con valores
-«…-MUN») y el bloque de firma de las cartas: imágenes achicadas hasta caber
+El ROL de la nómina (la columna «ROL», p. ej. «13Y95046/26») y el bloque de firma de las cartas: imágenes achicadas hasta caber
 en su caja y el timbre arriba de la firma y del nombre (29-oct-2026).
 """
 
@@ -15,7 +14,7 @@ from PIL import Image
 
 from motor.agrupacion import construir_grupos
 from motor.cartas import formatear_rol
-from motor.columnas import COLUMNA_ROL_MUN, columna_rol_municipal
+from motor.columnas import columna_rol
 from motor.lectura import leer_nomina
 from motor.plantilla import (
     CAJA_FIRMA_IN,
@@ -37,78 +36,72 @@ def _nomina_xlsx(df):
     return buffer
 
 
-def _con_columna_sin_encabezado(valores):
-    """Como la nómina de la DAF: el ROL en una columna sin título."""
+def _con_rol(valores, encabezado="ROL"):
+    """Como la nómina del 3er JPL: el ROL en la columna «ROL»."""
     filas = [fila(pat=f"AAAA1{i}", nro_parte=f"125584{i}-M78") for i in range(len(valores))]
-    df = pd.DataFrame(filas)
-    df.insert(9, "", valores)
+    df = pd.DataFrame(filas).drop(columns=["Rol"])
+    df.insert(0, encabezado, valores)
     return df
 
 
-class RolMunicipalTest(unittest.TestCase):
-    def test_la_columna_sin_encabezado_se_reconoce_por_su_contenido(self):
-        df = leer_nomina(_nomina_xlsx(_con_columna_sin_encabezado(["3090675-MUN", "3090676-MUN"])))
-        self.assertIn(COLUMNA_ROL_MUN, df.columns)
+class RolDeLaNominaTest(unittest.TestCase):
+    def test_se_lee_de_la_columna_rol_y_va_tal_cual(self):
+        df = leer_nomina(_nomina_xlsx(_con_rol(["13Y95046/26", "13Y97421/26"])))
+        self.assertEqual(columna_rol(df), "ROL")
+        self.assertEqual(df.attrs["avisos_lectura"], {})
         grupos, _, _ = construir_grupos(df, [], utm_multa_defecto=1)
-        self.assertEqual(grupos["AAAA10"]["causas"][0]["rol_raw"], "3090675-MUN")
+        rol = grupos["AAAA10"]["causas"][0]["rol_raw"]
+        self.assertEqual(rol, "13Y95046/26")
+        self.assertEqual(formatear_rol(rol), "13Y95046/26")
 
-    def test_va_tal_cual_en_la_carta(self):
-        self.assertEqual(formatear_rol("3090675-MUN", 2026), "3090675-MUN")
-        self.assertEqual(formatear_rol("3090675-mun", 2026), "3090675-mun")
-        # un folio suelto sigue el formato de siempre, y sin dato, PENDIENTE
-        self.assertEqual(formatear_rol("4512", 2026), "4512-T-2026")
-        self.assertEqual(formatear_rol("", 2026), "PENDIENTE")
+    def test_no_se_le_agrega_nada_ni_se_toca_el_formato(self):
+        for valor in ("2026-Y11-259698", "11Y80151/26", "2026 Y419252", "3090675-MUN", "4512"):
+            self.assertEqual(formatear_rol(valor), valor)
+        self.assertEqual(formatear_rol("  13Y95046/26\r"), "13Y95046/26")
 
-    def test_el_n_de_parte_no_se_confunde_con_el_rol(self):
-        df = pd.DataFrame([fila(nro_parte="1255846-M78")])
-        self.assertIsNone(columna_rol_municipal(df))
+    def test_sin_dato_dice_pendiente(self):
+        self.assertEqual(formatear_rol(""), "PENDIENTE")
+        self.assertEqual(formatear_rol(None), "PENDIENTE")
 
-    def test_una_columna_que_no_es_toda_mun_no_cuenta(self):
-        df = _con_columna_sin_encabezado(["3090675-MUN", "otra cosa"])
-        self.assertIsNone(columna_rol_municipal(df))
+    def test_el_encabezado_se_reconoce_sin_importar_mayusculas_ni_espacios(self):
+        for encabezado in ("Rol", " rol ", "ROL", "Rol causa", "N° ROL", "Nº Rol"):
+            df = _con_rol(["13Y1/26"], encabezado)
+            self.assertEqual(columna_rol(df), encabezado)
 
-    def test_las_celdas_vacias_no_impiden_reconocerla(self):
-        df = _con_columna_sin_encabezado(["3090675-MUN", ""])
-        self.assertEqual(columna_rol_municipal(df), "")
-
-    def test_gana_al_encabezado_rol(self):
-        df = _con_columna_sin_encabezado(["3090675-MUN"])
-        df["Rol"] = ["999"]
+    def test_rolmop_no_se_toma_como_rol(self):
+        # «rol» está dentro de «rolmop»: un match por subcadena lo confundiría
+        df = _con_rol(["13Y1/26"], "ROLMOP")
+        self.assertIsNone(columna_rol(df))
         grupos, _, _ = construir_grupos(leer_nomina(_nomina_xlsx(df)), [], utm_multa_defecto=1)
-        self.assertEqual(grupos["AAAA10"]["causas"][0]["rol_raw"], "3090675-MUN")
+        self.assertEqual(grupos["AAAA10"]["causas"][0]["rol_raw"], "")
+
+    def test_causa_sola_no_se_toma_como_rol(self):
+        # «CAUSA» puede ser el tipo o la descripción de la causa: no se adivina
+        df = _con_rol(["Infraccion al Art. 114"], "CAUSA")
+        self.assertIsNone(columna_rol(df))
+
+    def test_el_n_de_parte_y_la_descripcion_no_se_toman_como_rol(self):
+        df = pd.DataFrame([fila(nro_parte="1255846-M78")]).drop(columns=["Rol"])
+        df["DESCRIPCIÓN CAUSA"] = ["Infraccion al Art. 114"]
+        self.assertIsNone(columna_rol(df))
+
+    def test_un_valor_con_formato_distinto_se_imprime_igual(self):
+        grupos, _, _ = construir_grupos(
+            leer_nomina(_nomina_xlsx(_con_rol(["13Y95046/26", "S/N"]))), [], utm_multa_defecto=1)
+        self.assertEqual(grupos["AAAA11"]["causas"][0]["rol_raw"], "S/N")
 
 
-class RolMunicipalAmbiguoTest(unittest.TestCase):
-    """Ronda del árbitro: la columna del ROL no puede ser otra columna ya
-    mapeada, y un valor suelto distinto no deja a la nómina sin ROL."""
-
-    def test_un_n_de_parte_terminado_en_mun_no_se_toma_como_rol(self):
-        df = pd.DataFrame([fila(nro_parte=f"55{i}-MUN", pat=f"AAAA1{i}") for i in range(3)])
+class RolAusenteTest(unittest.TestCase):
+    def test_sin_columna_rol_avisa_y_la_carta_dice_pendiente(self):
+        df = pd.DataFrame([fila(pat=f"AAAA1{i}") for i in range(3)]).drop(columns=["Rol"])
         leida = leer_nomina(_nomina_xlsx(df))
-        self.assertNotIn(COLUMNA_ROL_MUN, leida.columns)
-        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_municipal_no_encontrado": True})
+        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_no_encontrado": True})
         grupos, _, _ = construir_grupos(leida, [], utm_multa_defecto=1)
-        self.assertEqual(grupos["AAAA10"]["causas"][0]["nroParte"], "550-MUN")
+        self.assertEqual(formatear_rol(grupos["AAAA10"]["causas"][0]["rol_raw"]), "PENDIENTE")
 
-    def test_un_valor_suelto_sin_formato_no_impide_reconocerla_y_queda_pendiente(self):
-        valores = [f"30906{i:02d}-MUN" for i in range(39)] + ["S/N"]
-        leida = leer_nomina(_nomina_xlsx(_con_columna_sin_encabezado(valores)))
-        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_municipal_sin_formato": 1})
-        grupos, _, _ = construir_grupos(leida, [], utm_multa_defecto=1)
-        ultima = grupos["AAAA139"]["causas"][0]
-        self.assertEqual(formatear_rol(ultima["rol_raw"], 2026), "PENDIENTE")
-
-    def test_espacios_alrededor_del_guion_cuentan(self):
-        leida = leer_nomina(_nomina_xlsx(_con_columna_sin_encabezado(["3090675 - MUN"])))
-        self.assertIn(COLUMNA_ROL_MUN, leida.columns)
-        self.assertEqual(formatear_rol(leida[COLUMNA_ROL_MUN][0], 2026), "3090675 - MUN")
-
-    def test_dos_columnas_candidatas_avisa_y_usa_la_primera(self):
-        df = _con_columna_sin_encabezado(["3090675-MUN"])
-        df.insert(11, " ", ["777-MUN"])
-        leida = leer_nomina(_nomina_xlsx(df))
-        self.assertEqual(leida[COLUMNA_ROL_MUN][0], "3090675-MUN")
-        self.assertEqual(len(leida.attrs["avisos_lectura"]["rol_municipal_otras_columnas"]), 1)
+    def test_valores_vacios_avisan_cuantos(self):
+        leida = leer_nomina(_nomina_xlsx(_con_rol(["13Y1/26", "", "13Y3/26", ""])))
+        self.assertEqual(leida.attrs["avisos_lectura"], {"rol_vacios": 2})
 
 
 def _imagen(carpeta, nombre, tamano):
@@ -154,7 +147,7 @@ def _info():
     return {
         "digPat": "1", "rol_raw": "", "reg_raw": "", "nombre": "MARIA PRUEBA", "rut": "1-9",
         "domicilio": "x", "comuna": "Maipu", "vehiculo": "x",
-        "causas": [{"nroParte": "9001", "rol_raw": "3090675-MUN", "fecha": "03/09/2026", "hora": "08:00",
+        "causas": [{"nroParte": "9001", "rol_raw": "13Y95046/26", "fecha": "03/09/2026", "hora": "08:00",
                     "lugar": "x", "disposicion": "x", "monto": 1}],
     }
 

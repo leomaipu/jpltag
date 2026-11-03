@@ -42,8 +42,9 @@
       {% if generacion.fecha_sentencia %}<div><dt>Fecha de la sentencia</dt><dd>{{ generacion.fecha_sentencia|date:"d/m/Y" }}</dd></div>{% endif %}
       <div><dt>Filas con N° de parte repetido (excluidas)</dt><dd>{{ generacion.total_duplicados }}</dd></div>
       <div><dt>Patentes sin causa válida (excluidas)</dt><dd>{{ generacion.total_sin_causas_validas }}</dd></div>
-      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>A coordinar con el Juzgado (agenda desactivada)</dd></div>
+      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>{% if generacion.avisos.audiencia_por_tandas %}{% for t in generacion.avisos.audiencia_por_tandas %}{{ t.0 }} ({{ t.1 }} carta{{ t.1|pluralize }}){% if not forloop.last %}; {% endif %}{% endfor %}{% elif generacion.avisos.audiencia_desde_formulario %}Fechas de audiencia indicadas al generar (sin hora){% elif generacion.avisos.citacion_sin_columna %}A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN){% elif generacion.avisos.citacion_ninguna %}A coordinar con el Juzgado (ninguna fecha de citación legible en la nómina){% else %}Fecha de citación tomada de la nómina (sin hora){% endif %}</dd></div>
       {% elif generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
+      {% if generacion.avisos.reg_desde %}<div><dt>Reg N°</dt><dd>{{ generacion.avisos.reg_desde }}{% if generacion.avisos.reg_hasta != generacion.avisos.reg_desde %} a {{ generacion.avisos.reg_hasta }}{% endif %}</dd></div>{% endif %}
       <div><dt>Generada</dt><dd>{{ generacion.creado|date:"j M Y, H:i"|lower }}</dd></div>
       <div><dt>Por</dt><dd>{{ generacion.usuario.get_full_name|default:generacion.usuario.username }}</dd></div>
     </dl>
@@ -67,13 +68,29 @@
 </section>
 {% endif %}
 
-{% if generacion.avisos.rol_municipal_no_encontrado or generacion.avisos.rol_municipal_sin_formato or generacion.avisos.rol_municipal_otras_columnas %}
+{% if generacion.avisos.rol_no_encontrado or generacion.avisos.rol_vacios %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa el ROL</span></h2>
   <ul class="lista">
-    {% if generacion.avisos.rol_municipal_no_encontrado %}<li>La nómina no trae la columna del ROL municipal (valores terminados en «-MUN»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
-    {% if generacion.avisos.rol_municipal_sin_formato %}<li>{{ generacion.avisos.rol_municipal_sin_formato }} valor{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"es" }} de la columna del ROL no termina{{ generacion.avisos.rol_municipal_sin_formato|pluralize:"n" }} en «-MUN»: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
-    {% if generacion.avisos.rol_municipal_otras_columnas %}<li>Más de una columna parece traer el ROL; se usó la primera. Las otras: {{ generacion.avisos.rol_municipal_otras_columnas|join:", " }}.</li>{% endif %}
+    {% if generacion.avisos.rol_no_encontrado %}<li>La nómina no trae una columna con encabezado «ROL» (también se acepta «ROL CAUSA» o «N° ROL»): en las cartas el ROL sale «PENDIENTE».</li>{% endif %}
+    {% if generacion.avisos.rol_vacios %}<li>{{ generacion.avisos.rol_vacios }} fila{{ generacion.avisos.rol_vacios|pluralize }} de la nómina no trae{{ generacion.avisos.rol_vacios|pluralize:"n" }} ROL: en esas causas el ROL sale «PENDIENTE».</li>{% endif %}
+  </ul>
+</section>
+{% endif %}
+
+{% if generacion.avisos.citacion_ignorada_por_agenda or generacion.avisos.audiencia_sin_bloque or generacion.avisos.audiencia_fechas_distintas or generacion.avisos.audiencia_causas_fuera_de_bloques or generacion.avisos.citacion_sin_columna or generacion.avisos.citacion_sin_fecha or generacion.avisos.citacion_fechas_distintas or generacion.avisos.citacion_en_el_pasado or generacion.avisos.citacion_ilegible %}
+<section class="bloque">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa la fecha de citación</span></h2>
+  <ul class="lista">
+    {% if generacion.avisos.citacion_ignorada_por_agenda %}<li>La agenda está activa: las cartas usan los cupos de la agenda y se ignoraron las fechas de audiencia.</li>{% endif %}
+    {% if generacion.avisos.audiencia_sin_bloque %}<li>{{ generacion.avisos.audiencia_sin_bloque }} patente{{ generacion.avisos.audiencia_sin_bloque|pluralize }} sin ninguna causa dentro de los bloques de folios indicados: usa la FECHA CITACIÓN de la nómina o sale «a coordinar con el Juzgado».</li>{% endif %}
+    {% if generacion.avisos.audiencia_causas_fuera_de_bloques %}<li>{{ generacion.avisos.audiencia_causas_fuera_de_bloques }} causa{{ generacion.avisos.audiencia_causas_fuera_de_bloques|pluralize }} fuera de los bloques de folios indicados (si la patente tiene otras causas dentro de un bloque, la carta usa esa fecha).</li>{% endif %}
+    {% if generacion.avisos.audiencia_fechas_distintas %}<li>{{ generacion.avisos.audiencia_fechas_distintas }} patente{{ generacion.avisos.audiencia_fechas_distintas|pluralize }} con causas en bloques de fechas distintas: la carta usa la más temprana{% if generacion.avisos.audiencia_fechas_distintas_ejemplos %} (por ejemplo {{ generacion.avisos.audiencia_fechas_distintas_ejemplos }}){% endif %}.</li>{% endif %}
+    {% if generacion.avisos.citacion_sin_columna %}<li>La nómina no trae una columna «FECHA CITACIÓN»: en las cartas la audiencia sale «en fecha y hora a coordinar con el Juzgado».</li>{% endif %}
+    {% if generacion.avisos.citacion_sin_fecha %}<li>{{ generacion.avisos.citacion_sin_fecha }} patente{{ generacion.avisos.citacion_sin_fecha|pluralize }} sin fecha de citación legible: su carta sale «a coordinar con el Juzgado».</li>{% endif %}
+    {% if generacion.avisos.citacion_ilegible %}<li>{{ generacion.avisos.citacion_ilegible }} patente{{ generacion.avisos.citacion_ilegible|pluralize }} con una fecha de citación que no se pudo leer (se ignoró esa fila).</li>{% endif %}
+    {% if generacion.avisos.citacion_fechas_distintas %}<li>{{ generacion.avisos.citacion_fechas_distintas }} patente{{ generacion.avisos.citacion_fechas_distintas|pluralize }} con causas de fechas de citación distintas: la carta usa la más temprana.</li>{% endif %}
+    {% if generacion.avisos.citacion_en_el_pasado %}<li>{{ generacion.avisos.citacion_en_el_pasado }} patente{{ generacion.avisos.citacion_en_el_pasado|pluralize }} con fecha de citación anterior a hoy en la nómina: esa fecha no se imprime y la carta sale «a coordinar con el Juzgado». Indica las fechas de audiencia al generar.</li>{% endif %}
   </ul>
 </section>
 {% endif %}

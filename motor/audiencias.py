@@ -92,3 +92,45 @@ def bloques_a_json(bloques):
 
 def bloques_de_json(datos):
     return [(d, h, date.fromisoformat(f)) for d, h, f in datos]
+
+
+# ── Reparto por tandas ────────────────────────────────────────────────────
+# Algunos Juzgados dividen el volumen en grupos de 200 o 300 personas y
+# asignan 3 o 4 días: la primera tanda cita a la primera fecha, y así.
+
+def parsear_fechas_por_tanda(texto, hoy=None):
+    """Una fecha por línea (dd/mm/aaaa), en el orden en que se usan.
+    Devuelve [date]. Levanta ValueError con un mensaje para la persona."""
+    hoy = hoy or date.today()
+    fechas = []
+    for n, linea in enumerate(str(texto or "").replace(",", "\n").splitlines(), 1):
+        if not linea.strip():
+            continue
+        try:
+            fecha = datetime.strptime(linea.strip(), "%d/%m/%Y").date()
+        except ValueError:
+            raise ValueError(
+                f"Línea {n}: «{linea.strip()}» no es una fecha (dd/mm/aaaa). Con «cartas por fecha» "
+                f"escribe solo las fechas, una por línea."
+            ) from None
+        if fecha < hoy:
+            raise ValueError(f"Línea {n}: la fecha {linea.strip()} ya pasó; la audiencia debe ser desde hoy en adelante.")
+        if (fecha - hoy).days > 366:
+            raise ValueError(f"Línea {n}: la fecha {linea.strip()} está a más de un año: revisa el año.")
+        if fecha in fechas:
+            raise ValueError(f"Línea {n}: la fecha {linea.strip()} está repetida.")
+        fechas.append(fecha)
+    if not fechas:
+        raise ValueError("Escribe al menos una fecha de audiencia.")
+    return fechas
+
+
+def fecha_de_carta(fechas, por_fecha, indice):
+    """La fecha de la carta número `indice` (0 = la primera) o None si las
+    fechas no alcanzan."""
+    posicion = indice // por_fecha
+    return fechas[posicion] if posicion < len(fechas) else None
+
+
+def fechas_necesarias(n_cartas, por_fecha):
+    return -(-n_cartas // por_fecha)

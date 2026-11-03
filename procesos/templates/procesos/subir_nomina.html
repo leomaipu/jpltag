@@ -33,6 +33,7 @@
   <input type="hidden" name="n_cartas_paquete" value="{{ form.n_cartas_paquete.value }}">
   <input type="hidden" name="reg" value="{{ form.reg.value|default:'' }}">
   <input type="hidden" name="fechas_audiencia" value="{{ form.fechas_audiencia.value|default:'' }}">
+  <input type="hidden" name="cartas_por_fecha" value="{{ form.cartas_por_fecha.value|default:'' }}">
   <section class="bloque" role="alert" aria-labelledby="repetir-titulo" tabindex="-1" data-enfocar>
     <h2 id="repetir-titulo" class="seccion__titulo">{% if repetido.es_pregunta %}Hay patentes que ya recibieron carta{% else %}Falta algo para seguir{% endif %}</h2>
     <p class="texto-suave">{{ repetido.mensaje }}</p>
@@ -108,6 +109,12 @@
         <span class="campo__ayuda" id="{{ form.fechas_audiencia.auto_id }}_helptext">{{ form.fechas_audiencia.help_text }}</span>
         {{ form.fechas_audiencia.errors }}
       </div>
+      <div class="campo no-sentencia">
+        <label for="{{ form.cartas_por_fecha.id_for_label }}">Cartas por fecha</label>
+        {{ form.cartas_por_fecha }}
+        <span class="campo__ayuda" id="{{ form.cartas_por_fecha.auto_id }}_helptext">{{ form.cartas_por_fecha.help_text }}</span>
+        {{ form.cartas_por_fecha.errors }}
+      </div>
       <div class="campo solo-sentencia">
         <label for="{{ form.fecha_audiencia.id_for_label }}">Fecha de la sentencia</label>
         {{ form.fecha_audiencia }}
@@ -117,9 +124,9 @@
     </section>
 
     <section class="paso bloque">
-      <h2 class="seccion__titulo">Reg N°<small>El número de registro del sobre.</small></h2>
+      <h2 class="seccion__titulo">Reg N°<small>El número de registro del sobre; sube de 1 en 1 en cada carta.</small></h2>
       <div class="campo">
-        <label for="{{ form.reg.id_for_label }}">Reg N°</label>
+        <label for="{{ form.reg.id_for_label }}">Reg N° de la primera carta</label>
         {{ form.reg }}
         <span class="campo__ayuda" id="{{ form.reg.auto_id }}_helptext">{{ form.reg.help_text }}</span>
         {{ form.reg.errors }}

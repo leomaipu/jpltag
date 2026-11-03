@@ -521,6 +521,7 @@ def _seguimiento_de_lote(lote_patentes, num_lote, primera_carta, tipo_carta):
             "Tipo de carta": tipo_carta,
             "Patente": info.get("placa", patente),
             "RUT": info.get("rut", ""),
+            "Reg N°": info.get("reg_raw", ""),
             "N° de Parte": causa["nroParte"],
             "Rol": formatear_rol(causa.get("rol_raw")),
         }

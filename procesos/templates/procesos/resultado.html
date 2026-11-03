@@ -42,8 +42,9 @@
       {% if generacion.fecha_sentencia %}<div><dt>Fecha de la sentencia</dt><dd>{{ generacion.fecha_sentencia|date:"d/m/Y" }}</dd></div>{% endif %}
       <div><dt>Filas con N° de parte repetido (excluidas)</dt><dd>{{ generacion.total_duplicados }}</dd></div>
       <div><dt>Patentes sin causa válida (excluidas)</dt><dd>{{ generacion.total_sin_causas_validas }}</dd></div>
-      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>{% if generacion.avisos.audiencia_desde_formulario %}Fechas de audiencia indicadas al generar (sin hora){% elif generacion.avisos.citacion_sin_columna %}A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN){% elif generacion.avisos.citacion_ninguna %}A coordinar con el Juzgado (ninguna fecha de citación legible en la nómina){% else %}Fecha de citación tomada de la nómina (sin hora){% endif %}</dd></div>
+      {% if generacion.avisos.agenda_desactivada %}<div><dt>Audiencia</dt><dd>{% if generacion.avisos.audiencia_por_tandas %}{% for t in generacion.avisos.audiencia_por_tandas %}{{ t.0 }} ({{ t.1 }} carta{{ t.1|pluralize }}){% if not forloop.last %}; {% endif %}{% endfor %}{% elif generacion.avisos.audiencia_desde_formulario %}Fechas de audiencia indicadas al generar (sin hora){% elif generacion.avisos.citacion_sin_columna %}A coordinar con el Juzgado (la nómina no trae FECHA CITACIÓN){% elif generacion.avisos.citacion_ninguna %}A coordinar con el Juzgado (ninguna fecha de citación legible en la nómina){% else %}Fecha de citación tomada de la nómina (sin hora){% endif %}</dd></div>
       {% elif generacion.tipo_carta != "SENTENCIA" %}<div><dt>Patentes sin cupo de agenda</dt><dd>{{ generacion.total_sin_cupo_agenda }}</dd></div>{% endif %}
+      {% if generacion.avisos.reg_desde %}<div><dt>Reg N°</dt><dd>{{ generacion.avisos.reg_desde }}{% if generacion.avisos.reg_hasta != generacion.avisos.reg_desde %} a {{ generacion.avisos.reg_hasta }}{% endif %}</dd></div>{% endif %}
       <div><dt>Generada</dt><dd>{{ generacion.creado|date:"j M Y, H:i"|lower }}</dd></div>
       <div><dt>Por</dt><dd>{{ generacion.usuario.get_full_name|default:generacion.usuario.username }}</dd></div>
     </dl>

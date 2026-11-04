@@ -193,6 +193,70 @@
     }, 6000);
   })();
 
+  // UTM: el gráfico se lee con el dedo o el mouse. Sin JavaScript queda el valor
+  // de cada mes en su título y en la tabla.
+  doc.querySelectorAll("[data-utm-serie]").forEach(function (figura) {
+    var svg = figura.querySelector("svg");
+    var zonas = figura.querySelectorAll(".utm-escalera__zona");
+    var lectura = figura.querySelector("[data-utm-lectura]");
+    var resumen = figura.querySelector("[data-utm-resumen]");
+    var punto = figura.querySelector("[data-utm-punto]");
+    var guia = figura.querySelector("[data-utm-guia]");
+    var inicial = punto.getAttribute("d");
+    var espera = null;
+
+    function volver() {
+      punto.setAttribute("d", inicial);
+      guia.setAttribute("hidden", "");
+      lectura.hidden = true;
+      resumen.hidden = false;
+    }
+
+    // Se busca el mes más cercano al puntero: con el dedo, el navegador deja de
+    // avisar qué elemento hay debajo una vez que empieza el arrastre.
+    function seguir(e) {
+      window.clearTimeout(espera);
+      var caja = svg.getBoundingClientRect();
+      var x = (e.clientX - caja.left) * svg.viewBox.baseVal.width / caja.width;
+      var cerca = zonas[0];
+      zonas.forEach(function (z) {
+        if (Math.abs(z.getAttribute("data-x") - x) < Math.abs(cerca.getAttribute("data-x") - x)) { cerca = z; }
+      });
+      var centro = cerca.getAttribute("data-x");
+      punto.setAttribute("d", "M" + centro + " " + cerca.getAttribute("data-y") + "h0.01");
+      guia.setAttribute("x1", centro);
+      guia.setAttribute("x2", centro);
+      guia.removeAttribute("hidden");
+      lectura.textContent = cerca.getAttribute("data-texto");
+      lectura.hidden = false;
+      resumen.hidden = true;
+    }
+
+    svg.addEventListener("pointerdown", seguir);
+    svg.addEventListener("pointermove", seguir);
+    // Con el mouse vuelve al salir; con el dedo, un momento después de soltar.
+    svg.addEventListener("pointerleave", function (e) {
+      if (e.pointerType === "mouse") { volver(); return; }
+      espera = window.setTimeout(volver, 3000);
+    });
+  });
+
+  // El botón dice dónde se va a guardar, y no se confirma sobre nada.
+  doc.querySelectorAll("[data-utm-confirma]").forEach(function (form) {
+    var boton = form.querySelector("[data-utm-boton]");
+    var marcas = form.querySelectorAll('input[name="juzgados"]');
+    var valor = form.getAttribute("data-pesos");
+    function pintar() {
+      var n = form.querySelectorAll('input[name="juzgados"]:checked').length;
+      boton.disabled = n === 0;
+      boton.textContent = n === 0 ? "Marca un juzgado"
+        : marcas.length === 1 ? "Confirmar " + valor
+        : "Confirmar " + valor + " en " + n + (n === 1 ? " juzgado" : " juzgados");
+    }
+    form.addEventListener("change", pintar);
+    pintar();
+  });
+
   // Si la persona vuelve con "Atrás", el navegador puede restaurar la página
   // con el estado de espera encendido: se apaga.
   window.addEventListener("pageshow", function (e) {

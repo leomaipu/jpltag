@@ -15,7 +15,7 @@
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#agenda"/></svg><span>Agenda</span>
 </a>
 {% if user.perfil.puede_editar_plantilla %}
-<a href="{% url 'procesos:plantilla' %}" {% if actual == 'plantilla' %}aria-current="page"{% endif %}>
+<a href="{% url 'procesos:plantilla' %}" {% if actual == 'plantilla' or actual == 'utm' %}aria-current="page"{% endif %}>
   <svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#plantilla"/></svg><span>Plantillas</span>
 </a>
 {% endif %}

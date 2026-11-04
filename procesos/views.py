@@ -24,10 +24,9 @@ from django.views import View
 from motor.cartas import fmt_pesos
 from motor.fechas_en_letras import MESES
 from motor.plantilla import ruta_plantilla_defecto
-from motor.utm import ErrorConsultaUTM, consultar_utm_vigente
-from nucleo.models import BloqueAjuste, BloqueHorario, Juzgado, TipoCarta, ahora_local
+from nucleo.models import BloqueAjuste, BloqueHorario, ConflictoUTM, Juzgado, TipoCarta, ahora_local
 
-from . import armado, generacion
+from . import armado, generacion, utm, utm_grafico
 from .forms import CUPOS_MAXIMOS, ArmarNominaForm, BloqueEditarForm, BloqueHorarioForm, BloqueSerieForm, IngresarForm, PlantillaJuzgadoForm, SubirNominaForm
 from .models import ArchivoGenerado, GeneracionCartas
 from .permisos import (
@@ -93,6 +92,7 @@ class PanelView(PerfilRequeridoMixin, View):
             "juzgados": juzgados,
             "generaciones": generaciones,
             "proximos_bloques": proximos_bloques,
+            "utm_por_revisar": utm.juzgados_por_revisar(juzgados) if perfil.puede_editar_plantilla() else [],
         })
 
 
@@ -653,6 +653,8 @@ def _contexto_plantilla(perfil, juzgado, form):
         "form": form, "juzgado": juzgado, "juzgados": _juzgados_visibles(perfil),
         "plantillas": plantillas,
         "utm_actual": fmt_pesos(juzgado.utm_valor),
+        "utm_estado": utm.estado_de(juzgado),
+        "utm_periodo": utm.periodo(juzgado.utm_vigente_desde) if juzgado.utm_vigente_desde else None,
     }
 
 
@@ -730,46 +732,63 @@ class VerImagenJuzgadoView(PuedeEditarPlantillaMixin, View):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# UTM vigente (Módulo 4 — ver motor/utm.py para la fuente y por qué)
+# UTM vigente (Módulo 4 — el caso de uso vive en procesos/utm.py)
 # ══════════════════════════════════════════════════════════════════════
 
-class ActualizarUTMView(PuedeEditarPlantillaMixin, View):
-    """Un solo clic consulta el valor UTM vigente y lo deja guardado si
-    cambió — nunca en segundo plano ni al cargar la página: afecta el
-    monto de cada multa en la carta, así que lo dispara a propósito
-    quien tiene permiso para editar la configuración del Juzgado."""
+# Los juzgados recién confirmados: la pantalla los marca una sola vez al volver.
+SESION_UTM_RECIEN = "utm_recien"
 
-    def post(self, request):
-        perfil = request.user.perfil
-        juzgado = _juzgado_actual(request, perfil)
-        if juzgado is None:
+
+class UTMView(PuedeEditarPlantillaMixin, View):
+    """Muestra el valor de la fuente junto a lo guardado. No guarda nada: eso lo
+    hace ConfirmarUTMView, cuando la persona revisó el valor."""
+
+    def get(self, request):
+        juzgados = list(_juzgados_visibles(request.user.perfil))
+        if not juzgados:
             messages.error(request, "No hay ningún juzgado configurado todavía.")
             return redirect("procesos:panel")
+        datos = utm.pantalla(juzgados, request.user, fresco="fresco" in request.GET)
+        datos["grafico"] = utm_grafico.construir(datos.get("serie", []))
+        recien = set(request.session.pop(SESION_UTM_RECIEN, []))
+        for fila in datos["filas"]:
+            fila["recien"] = fila["juzgado"].slug in recien
+        return render(request, "procesos/utm.html", datos)
+
+
+class ConfirmarUTMView(PuedeEditarPlantillaMixin, View):
+    def post(self, request):
+        destino = redirect("procesos:utm")
+        try:
+            consulta, vistos = utm.leer_firma(request.POST.get("firma", ""), request.user)
+        except utm.ConsultaInvalida:
+            messages.warning(request, "La consulta ya venció. Revisa el valor actualizado y vuelve a confirmar.")
+            return destino
+
+        slugs = request.POST.getlist("juzgados")
+        if not utm.slugs_validos(slugs):
+            raise PermissionDenied("No tienes acceso a uno de esos juzgados.")
+        juzgados = list(_juzgados_visibles(request.user.perfil).filter(slug__in=slugs))
+        if len(juzgados) != len(set(slugs)):
+            raise PermissionDenied("No tienes acceso a uno de esos juzgados.")
+        if not juzgados:
+            messages.warning(request, "Marca al menos un juzgado para guardar el valor.")
+            return destino
 
         try:
-            info = consultar_utm_vigente()
-        except ErrorConsultaUTM as exc:
-            logger.warning("Consulta UTM fallida: %s", exc)
-            messages.error(
+            cambiados = utm.aplicar(consulta, vistos, juzgados, request.user)
+        except ConflictoUTM:
+            messages.warning(
                 request,
-                "No se pudo consultar el valor UTM vigente (mindicador.cl no respondió). "
-                "Inténtalo de nuevo en unos minutos; mientras tanto se sigue usando el valor guardado.",
+                "El valor de un juzgado cambió mientras lo revisabas, así que no se guardó nada. Revísalo de nuevo.",
             )
+            return destino
+        request.session[SESION_UTM_RECIEN] = [j.slug for j in juzgados]
+        pesos = fmt_pesos(consulta.valor)
+        mes = utm.periodo(consulta.vigente_desde)
+        if cambiados:
+            nombres = ", ".join(j.slug.upper() for j in cambiados)
+            messages.success(request, f"UTM guardada: {pesos}, vigente en {mes}. Cambió en {nombres}.")
         else:
-            anterior = juzgado.utm_valor
-            periodo = f"{MESES[info['fecha'].month - 1]} {info['fecha'].year}"
-            if info["valor"] == anterior:
-                messages.success(
-                    request,
-                    f"El valor UTM ya estaba al día: {fmt_pesos(anterior)} "
-                    f"(vigente {periodo}, fuente: {info['fuente']}).",
-                )
-            else:
-                juzgado.utm_valor = info["valor"]
-                juzgado.save(update_fields=["utm_valor"])
-                messages.success(
-                    request,
-                    f"UTM actualizada de {fmt_pesos(anterior)} a {fmt_pesos(info['valor'])} "
-                    f"(vigente {periodo}, fuente: {info['fuente']}).",
-                )
-        return redirect(f"{reverse('procesos:plantilla')}?juzgado={juzgado.slug}")
+            messages.success(request, f"UTM confirmada: {pesos}, vigente en {mes}. El valor no cambió.")
+        return destino

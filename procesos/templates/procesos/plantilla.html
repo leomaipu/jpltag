@@ -90,15 +90,14 @@
   </div>
 </form>
 
-<section class="bloque" aria-labelledby="utm-titulo">
+<section class="bloque utm-resumen" aria-labelledby="utm-titulo">
   <h2 id="utm-titulo" class="seccion__titulo">Valor de la UTM<small>Define el monto en pesos de cada multa.</small></h2>
   <p class="utm">{{ utm_actual }}</p>
-  <form method="post" action="{% url 'procesos:actualizar_utm' %}" class="acciones acciones--izq">
-    {% csrf_token %}
-    <input type="hidden" name="juzgado" value="{{ juzgado.slug }}">
-    <button type="submit" class="btn">Verificar valor UTM</button>
-  </form>
-  <p class="campo__ayuda mt">Consulta el valor vigente en mindicador.cl y lo actualiza si cambió. No se actualiza solo: hay que pulsar el botón cada vez.</p>
+  <p class="utm-resumen__meta">
+    <span class="estado estado--{{ utm_estado.tono }}">{{ utm_estado.etiqueta }}</span>
+    {% if utm_periodo %}<span class="texto-suave">Vigente en {{ utm_periodo }}{% if juzgado.utm_fuente %}, según {{ juzgado.utm_fuente }}{% endif %}{% if juzgado.utm_verificada_en %}. Confirmado el {{ juzgado.utm_verificada_en|date:"j M Y"|lower }}{% endif %}.</span>{% endif %}
+  </p>
+  <a class="btn" href="{% url 'procesos:utm' %}">Consultar valor vigente</a>
 </section>
 
 <details class="avanzado explica">

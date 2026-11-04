@@ -2,7 +2,14 @@
 
 from django import template
 
+from motor.cartas import fmt_pesos
+
 register = template.Library()
+
+
+@register.filter
+def pesos(valor):
+    return fmt_pesos(valor)
 
 
 @register.inclusion_tag("procesos/_cupos.html")

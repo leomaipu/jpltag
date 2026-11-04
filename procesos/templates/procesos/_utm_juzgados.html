@@ -1,0 +1,22 @@
+<ul class="utm-juzgados">
+  {% for f in filas %}
+  <li class="utm-juzgado utm-juzgado--{{ f.estado.tono }}{% if f.recien %} utm-juzgado--recien{% endif %}">
+    {% if f.pendiente %}
+    <label class="utm-juzgado__cabeza utm-juzgado__cabeza--marca">
+      <input type="checkbox" name="juzgados" value="{{ f.juzgado.slug }}" aria-describedby="utm-fila-{{ f.juzgado.slug }}"{% if not revisar %} checked{% endif %}>
+      <span class="utm-juzgado__punto" aria-hidden="true"></span>
+      <span class="utm-juzgado__nombre">{{ f.juzgado.nombre }}</span>
+    </label>
+    {% else %}
+    <span class="utm-juzgado__cabeza">
+      <span class="utm-juzgado__punto" aria-hidden="true"></span>
+      <span class="utm-juzgado__nombre">{{ f.juzgado.nombre }}</span>
+    </span>
+    {% endif %}
+    <span class="utm-juzgado__dato" id="utm-fila-{{ f.juzgado.slug }}">
+      <span class="utm-juzgado__pesos">{{ f.pesos }}{% if f.pendiente and f.juzgado.utm_valor != consulta.valor %} <span class="utm-flecha" aria-hidden="true">→</span><span class="solo-lectores"> pasa a</span> <strong>{{ pesos }}</strong>{% endif %}</span>
+      <span class="utm-juzgado__estado">{{ f.estado.etiqueta }}</span>
+    </span>
+  </li>
+  {% endfor %}
+</ul>

@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import BloqueAjuste, BloqueHorario, Juzgado, PerfilUsuario
+from .models import BloqueAjuste, BloqueHorario, ConstanciaUTM, Juzgado, PerfilUsuario
+
+FUENTE_MANUAL = "Ingreso manual"
 
 
 @admin.register(Juzgado)
@@ -8,6 +10,35 @@ class JuzgadoAdmin(admin.ModelAdmin):
     list_display = ("slug", "nombre", "dia_desde", "dia_hasta", "utm_valor", "activo")
     list_filter = ("activo",)
     search_fields = ("slug", "nombre")
+    readonly_fields = ("utm_vigente_desde", "utm_fuente", "utm_verificada_en")
+
+    def save_model(self, request, obj, form, change):
+        """Un valor a mano pasa por el mismo registro: queda la constancia y
+        pierde el mes verificado hasta consultarlo de nuevo."""
+        if "utm_valor" not in form.changed_data:
+            super().save_model(request, obj, form, change)
+            return
+        nuevo = obj.utm_valor
+        obj.utm_valor = form.initial.get("utm_valor", 0)
+        super().save_model(request, obj, form, change)
+        obj.registrar_utm(nuevo, None, FUENTE_MANUAL, request.user)
+
+
+@admin.register(ConstanciaUTM)
+class ConstanciaUTMAdmin(admin.ModelAdmin):
+    """Solo lectura: es una constancia."""
+
+    list_display = ("creado", "juzgado", "valor_anterior", "valor_nuevo", "vigente_desde", "fuente", "nombre_usuario")
+    list_filter = ("juzgado", "fuente")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(BloqueHorario)

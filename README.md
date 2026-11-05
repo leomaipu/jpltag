@@ -211,18 +211,23 @@ nómina sin mes reconocible o sin patentes del rango queda como corrida
 de generación corre dentro de la petición
 (`JPLTAG_GENERAR_EN_LA_PETICION`).
 
-### UTM automático (Módulo 4)
+### UTM (Módulo 4)
 
-El botón "Verificar valor UTM" en `/plantilla/` consulta el valor UTM
-vigente en [mindicador.cl](https://mindicador.cl/api/utm) (`motor/utm.py`)
-y actualiza `Juzgado.utm_valor` si cambió — nunca en segundo plano, solo
-al apretar el botón, porque afecta el monto de cada multa en la carta.
-Se eligió mindicador.cl (pública, gratuita, sin registro) en vez de la
-API oficial de la CMF porque esta última exige una API key que no se
-tramitó; si en algún momento se consigue, `motor/utm.py` es el único
-archivo que habría que tocar. El valor también se puede seguir editando
-a mano desde `/admin/`. Ver la nota sobre la salida a internet del
-servidor en DESPLIEGUE.md.
+«Valor de la UTM» (`/plantilla/utm/`) consulta el valor del mes y lo muestra junto
+a lo guardado en cada juzgado. **Consultar no guarda nada**: el valor se guarda solo
+al confirmar, porque define el monto de cada multa. Lo confirmado viaja firmado
+para que no se pueda alterar, y si un juzgado cambió mientras se revisaba no se
+guarda nada.
+
+- **Fuente:** la API oficial de la CMF si hay key (`CMF_API_KEY_FILE` o
+  `CMF_API_KEY`); si no, mindicador.cl. Otra fuente es otro adaptador en
+  `motor/utm.py`. Sin el valor del mes en curso, la pantalla no ofrece confirmar.
+- **La key es un secreto:** la CMF la recibe en la URL, así que ningún error conserva
+  esa URL, no se siguen redirecciones y las peticiones salientes no van a GlitchTip.
+- **Constancia:** toda confirmación queda en `ConstanciaUTM` con persona, fecha y
+  fuente, también los cambios en `/admin/`, que dejan el valor «Sin verificar».
+- **Aviso:** el panel avisa a quien puede corregirlo si un juzgado no tiene
+  confirmado el valor del mes. Nunca se actualiza solo.
 
 ## Roles y permisos
 

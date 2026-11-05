@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -12,6 +12,10 @@ class TipoCarta(models.TextChoices):
     CITACION = "CITACION", "Citación"
     CITACION_SENTENCIA = "CITACION_SENTENCIA", "Citación y sentencia"
     SENTENCIA = "SENTENCIA", "Sentencia"
+
+
+class ConflictoUTM(Exception):
+    """La UTM de un juzgado cambió después de que la persona la revisó."""
 
 
 class Juzgado(models.Model):
@@ -42,16 +46,19 @@ class Juzgado(models.Model):
         help_text="Último día del mes que procesa (31 para el último tramo: así no se pierde el día 31).",
     )
 
-    # UTM vigente configurada (Módulo 4 de la propuesta) — se puede dejar
-    # fija acá (/admin/) o consultarla con un clic desde /plantilla/, que
-    # la compara contra mindicador.cl y la actualiza si cambió (ver
-    # motor/utm.py — no la propia API de la CMF, que exige una API key
-    # que no se tramitó; decisión confirmada con Leonardo el 11-oct-2026).
+    # UTM vigente (Módulo 4): se confirma desde /plantilla/utm/ o a mano en
+    # /admin/. Cada confirmación deja constancia (ver registrar_utm).
     utm_valor = models.PositiveIntegerField(
         default=0,
-        help_text="Valor UTM configurado para este juzgado. Se puede actualizar a mano "
-                   "o con el botón \"Verificar valor UTM\" en /plantilla/.",
+        help_text="Valor UTM de este juzgado. Se confirma desde «Valor de la UTM»; "
+                   "si lo cambias aquí, queda sin verificar hasta consultarlo de nuevo.",
     )
+    utm_vigente_desde = models.DateField(
+        null=True, blank=True, editable=False,
+        help_text="Mes al que corresponde el valor, según la fuente. Vacío: sin verificar.",
+    )
+    utm_fuente = models.CharField(max_length=40, blank=True, editable=False)
+    utm_verificada_en = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Cuántas infracciones caben en UNA página de carta sin que la firma y el
     # texto final salten a una segunda hoja. Medido con LibreOffice
@@ -100,6 +107,33 @@ class Juzgado(models.Model):
 
     def __str__(self):
         return self.nombre
+
+    def registrar_utm(self, valor, vigente_desde, fuente, usuario, esperado=None):
+        """Único punto que cambia la UTM: toda confirmación deja constancia.
+        Devuelve True si cambió el valor. Si ya estaba así no hace nada (doble
+        envío), y si `esperado` no coincide lanza ConflictoUTM: alguien lo cambió
+        después de que la persona lo revisó."""
+        with transaction.atomic():
+            actual = Juzgado.objects.select_for_update().get(pk=self.pk)
+            foto = (actual.utm_valor, actual.utm_vigente_desde)
+            if foto == (valor, vigente_desde) and vigente_desde is not None:
+                self.utm_valor, self.utm_vigente_desde = foto
+                return False
+            if esperado is not None and tuple(esperado) != foto:
+                raise ConflictoUTM
+            self.utm_valor = valor
+            self.utm_vigente_desde = vigente_desde
+            self.utm_fuente = fuente
+            self.utm_verificada_en = timezone.now() if vigente_desde else None
+            self.save(update_fields=[
+                "utm_valor", "utm_vigente_desde", "utm_fuente", "utm_verificada_en",
+            ])
+            ConstanciaUTM.objects.create(
+                juzgado=self, valor_anterior=foto[0], valor_nuevo=valor,
+                vigente_desde=vigente_desde, fuente=fuente, usuario=usuario,
+                nombre_usuario=usuario.get_username() if usuario else "",
+            )
+        return foto[0] != valor
 
     def clean(self):
         super().clean()
@@ -221,6 +255,35 @@ class BloqueAjuste(models.Model):
 
     def __str__(self):
         return f"{self.fecha} {self.hora:%H:%M}: {self.desde}→{self.hasta} por {self.nombre_usuario}"
+
+
+class ConstanciaUTM(models.Model):
+    """Quién confirmó qué valor de la UTM y cuándo, aunque el valor se repita de
+    un mes a otro. Se crea solo desde Juzgado.registrar_utm."""
+
+    juzgado = models.ForeignKey(Juzgado, on_delete=models.PROTECT, related_name="constancias_utm")
+    valor_anterior = models.PositiveIntegerField()
+    valor_nuevo = models.PositiveIntegerField()
+    vigente_desde = models.DateField(null=True, blank=True)
+    fuente = models.CharField(max_length=40)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    # Copia del nombre: la constancia sobrevive aunque se elimine la cuenta.
+    nombre_usuario = models.CharField(max_length=150, blank=True)
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado", "-pk"]
+        verbose_name = "constancia de UTM"
+        verbose_name_plural = "constancias de UTM"
+
+    def __str__(self):
+        return f"{self.juzgado.slug}: {self.valor_anterior} → {self.valor_nuevo}"
+
+    @property
+    def cambio_valor(self):
+        return self.valor_anterior != self.valor_nuevo
 
 
 class Rol(models.TextChoices):

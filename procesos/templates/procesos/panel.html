@@ -17,6 +17,14 @@
 </section>
 {% endif %}
 
+{% if utm_por_revisar %}
+<a class="aviso-utm" href="{% url 'procesos:utm' %}">
+  <span class="estado estado--aviso">Revisa la UTM</span>
+  <span>{% if utm_por_revisar|length == 1 %}{{ utm_por_revisar.0.nombre }} no tiene el valor de este mes confirmado.{% else %}{{ utm_por_revisar|length }} juzgados no tienen el valor de este mes confirmado.{% endif %}</span>
+  <span class="aviso-utm__ir">Revisar <span aria-hidden="true">→</span></span>
+</a>
+{% endif %}
+
 <section class="bloque bloque--azul heroe" aria-labelledby="heroe-titulo">
   {% if perfil.puede_generar_cartas %}
   <h2 id="heroe-titulo">Una carta por patente, con todas sus multas del mes</h2>

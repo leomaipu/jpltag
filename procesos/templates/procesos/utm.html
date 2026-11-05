@@ -1,0 +1,113 @@
+{% extends "procesos/base.html" %}
+{% load static diseno %}
+{% block titulo %}Valor de la UTM{% endblock %}
+{% block marca %}UTM{% endblock %}
+{% block contenido %}
+<header class="cab">
+  <p class="cab__volver"><a href="{% url 'procesos:plantilla' %}"><span aria-hidden="true">← </span>Plantillas y logos</a></p>
+  <h1>Valor de la UTM</h1>
+  <p class="utm-cab__texto">Define el monto de cada multa: revísalo y confírmalo antes de guardarlo.</p>
+  <div class="tribarra"><i></i></div>
+</header>
+
+<div class="utm-pantalla">
+{% if consulta %}
+  <section class="bloque bloque--azul utm-acta" aria-labelledby="utm-valor"{% if grafico %} data-utm-serie{% endif %}>
+    <div class="utm-acta__cabeza">
+      <div>
+        <p class="utm-acta__etiqueta">{% if publicada %}UTM de {{ periodo }}{% else %}Último valor publicado: {{ periodo }}{% endif %}</p>
+        <p class="utm-acta__valor" id="utm-valor">{{ pesos }}</p>
+      </div>
+      {% if grafico %}
+      <p class="utm-acta__lectura">
+        <span data-utm-resumen><span class="utm-acta__variacion">{{ grafico.variacion }}</span> respecto de {{ grafico.mes_previo }}</span>
+        <span class="utm-acta__mes" data-utm-lectura hidden></span>
+      </p>
+      {% endif %}
+    </div>
+    {% if grafico %}
+    <figure class="utm-escalera">
+      <svg viewBox="0 0 {{ grafico.ancho }} {{ grafico.alto }}" preserveAspectRatio="none" role="img" aria-label="Escalera de la UTM mes a mes, desde {{ grafico.desde }} hasta {{ grafico.hasta }}. Mínimo {{ grafico.bajo }}, máximo {{ grafico.alto_pesos }}. El detalle está en la tabla que sigue.">
+        <path class="utm-escalera__trazo" d="{{ grafico.trazo }}"/>
+        <line class="utm-escalera__guia" data-utm-guia x1="{{ grafico.ultimo.centro }}" x2="{{ grafico.ultimo.centro }}" y1="0" y2="{{ grafico.alto }}" hidden/>
+        <path class="utm-escalera__punto" data-utm-punto d="M{{ grafico.ultimo.x_fin }} {{ grafico.ultimo.y }}h0.01"/>
+        {% for p in grafico.puntos %}<rect class="utm-escalera__zona" x="{{ p.x }}" y="0" width="{{ grafico.paso }}" height="{{ grafico.alto }}" data-x="{{ p.centro }}" data-y="{{ p.y }}" data-texto="{{ p.periodo }}: {{ p.pesos }}"><title>{{ p.periodo }}: {{ p.pesos }}</title></rect>{% endfor %}
+      </svg>
+      <p class="utm-escalera__meses" aria-hidden="true">{% for m in grafico.iniciales %}<span>{{ m }}</span>{% endfor %}</p>
+    </figure>
+    {% endif %}
+    <div class="utm-acta__pie">
+      <p class="utm-acta__meta">Según {{ consulta.fuente }}, consultado a las {{ consultado_en|date:"H:i" }}.{% if grafico %} Escala ajustada a {{ grafico.bajo }}–{{ grafico.alto_pesos }}: no parte de cero.{% endif %}</p>
+      <p class="utm-acta__enlaces">
+        <a href="{{ url_oficial }}" target="_blank" rel="noopener noreferrer">Comprobar en el SII<span class="solo-lectores"> (se abre en otra pestaña)</span> <span aria-hidden="true">↗</span></a>
+        <a href="{% url 'procesos:utm' %}?fresco=1">Consultar de nuevo</a>
+      </p>
+      {% if grafico %}
+      <details class="utm-acta__tabla">
+        <summary>Ver los valores mes a mes</summary>
+        <table>
+          <thead><tr><th scope="col">Mes</th><th scope="col">Valor</th></tr></thead>
+          <tbody>{% for p in grafico.puntos reversed %}<tr><td>{{ p.periodo }}</td><td>{{ p.pesos }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </details>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if not publicada %}
+  <section class="bloque utm-decision" aria-labelledby="utm-espera">
+    <h2 id="utm-espera" class="seccion__titulo">{{ consulta.fuente }} aún no publica {{ mes_en_curso }}<small>Todavía no hay nada que confirmar. Vuelve a consultar más tarde.</small></h2>
+    {% include "procesos/_utm_juzgados.html" %}
+  </section>
+  {% elif pendientes %}
+  <form method="post" action="{% url 'procesos:utm_confirmar' %}" class="bloque utm-decision" data-utm-confirma data-pesos="{{ pesos }}">
+    {% csrf_token %}
+    <input type="hidden" name="firma" value="{{ firma }}">
+    <h2 class="seccion__titulo">¿Es correcto?<small>Compáralo con el SII y marca dónde guardarlo. Nada cambia hasta que confirmes.</small></h2>
+    {% if revisar %}
+    <p class="mensaje warning utm-revisar" role="alert">Este valor se aleja más de un 10 % de lo conocido, o no hay con qué compararlo. Compruébalo en el SII antes de marcar un juzgado.</p>
+    {% endif %}
+    {% include "procesos/_utm_juzgados.html" %}
+    <div class="utm-decision__cierre">
+      <dl class="utm-multas">
+        {% for e in ejemplos %}
+        <div class="utm-multa">
+          <dt>Multa de {{ e.utm }} UTM</dt>
+          <dd>{{ e.pesos }}{% if e.antes %}<small>antes {{ e.antes }}</small>{% endif %}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+      <button type="submit" class="btn btn--primario btn--bloque" data-utm-boton>Confirmar {{ pesos }}</button>
+    </div>
+  </form>
+  {% else %}
+  <section class="bloque utm-decision" aria-labelledby="utm-al-dia">
+    <h2 id="utm-al-dia" class="seccion__titulo">Todo al día<small>{% if filas|length == 1 %}Este juzgado ya tiene{% else %}Los juzgados ya tienen{% endif %} el valor de {{ periodo }} confirmado.</small></h2>
+    {% include "procesos/_utm_juzgados.html" %}
+  </section>
+  {% endif %}
+{% else %}
+  <section class="bloque utm-decision" aria-labelledby="utm-falla-titulo">
+    <h2 id="utm-falla-titulo" class="seccion__titulo"><span class="estado estado--error utm-falla">No se pudo consultar a {{ fuente }}</span><small>No cambió nada: se sigue usando el valor guardado. Inténtalo de nuevo en unos minutos.</small></h2>
+    {% include "procesos/_utm_juzgados.html" %}
+    <a class="btn btn--primario utm-reintentar" href="{% url 'procesos:utm' %}?fresco=1">Reintentar</a>
+  </section>
+{% endif %}
+
+{% if constancias %}
+  <section class="utm-libro" aria-labelledby="utm-libro-titulo">
+    <h2 id="utm-libro-titulo" class="utm-libro__titulo">Libro de constancias</h2>
+    <ol>
+      {% for c in constancias %}
+      <li>
+        <time datetime="{{ c.creado|date:'c' }}">{{ c.creado|date:"j M Y, H:i"|lower }}</time>
+        <span class="utm-libro__juzgado">{{ c.juzgado.slug|upper }}</span>
+        <span class="utm-libro__cambio">{% if c.cambio_valor %}{{ c.valor_anterior|pesos }} <span aria-hidden="true">→</span><span class="solo-lectores"> pasó a</span> {{ c.valor_nuevo|pesos }}{% else %}{{ c.valor_nuevo|pesos }} confirmado{% endif %}</span>
+        <span class="utm-libro__quien">{{ c.fuente }}{% if c.nombre_usuario %}, {{ c.nombre_usuario }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endif %}
+</div>
+{% endblock %}

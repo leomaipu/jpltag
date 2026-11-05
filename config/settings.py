@@ -261,6 +261,12 @@ LOGGING = {
     },
 }
 
+# API key de la CMF para consultar la UTM (motor/utm.py). Sin ella se usa
+# mindicador.cl. Es un secreto: se lee de un archivo que solo recibe el proceso
+# que la usa (CMF_API_KEY_FILE) o del .env, nunca del repositorio.
+_ruta_cmf = env("CMF_API_KEY_FILE", default="")
+CMF_API_KEY = Path(_ruta_cmf).read_text(encoding="utf-8").strip() if _ruta_cmf else env("CMF_API_KEY", default="")
+
 # ──────────────────────────────────────────────────────────────────────────
 # Errores → GlitchTip (SDK de Sentry; nunca a Sentry directamente)
 #
@@ -283,6 +289,8 @@ if GLITCHTIP_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.django import DjangoIntegration
 
+    from config.observabilidad import sin_migas_http
+
     sentry_sdk.init(
         dsn=GLITCHTIP_DSN,
         integrations=[DjangoIntegration()],
@@ -290,4 +298,7 @@ if GLITCHTIP_DSN:
         send_default_pii=False,
         include_local_variables=False,
         max_request_body_size="never",
+        # Las peticiones HTTP salientes se registran con su query, y la de la CMF
+        # trae la API key.
+        before_breadcrumb=sin_migas_http,
     )

@@ -22,5 +22,6 @@ urlpatterns = [
     path("plantilla/", views.PlantillaView.as_view(), name="plantilla"),
     path("plantilla/imagen/<int:pk>/<str:campo>/", views.VerImagenJuzgadoView.as_view(), name="ver_imagen_juzgado"),
     path("plantilla/descargar/<int:pk>/<str:tipo>/", views.DescargarPlantillaView.as_view(), name="descargar_plantilla"),
-    path("plantilla/utm/actualizar/", views.ActualizarUTMView.as_view(), name="actualizar_utm"),
+    path("plantilla/utm/", views.UTMView.as_view(), name="utm"),
+    path("plantilla/utm/confirmar/", views.ConfirmarUTMView.as_view(), name="utm_confirmar"),
 ]

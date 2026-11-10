@@ -87,3 +87,21 @@ class VehiculoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PuntoCeroTest(unittest.TestCase):
+    """get_col recortaba el «.0» final de cualquier texto: «KWID HB 1.0» se
+    imprimía «KWID HB 1». Solo un número entero leído como decimal lo pierde."""
+
+    def test_el_modelo_y_el_domicilio_conservan_el_punto_cero(self):
+        from motor.columnas import get_col
+        fila = pd.Series({"MODELO DEL VEHÍCULO": "SPORTAGE 2.0", "DOMICILIO INFRACTOR": "SANTA RITA .0"})
+        self.assertEqual(get_col(fila, "MODELO"), "SPORTAGE 2.0")
+        self.assertEqual(get_col(fila, "DOMICILIO"), "SANTA RITA .0")
+
+    def test_un_numero_entero_leido_como_decimal_pierde_el_punto_cero(self):
+        from motor.columnas import get_col
+        self.assertEqual(get_col(pd.Series({"RUT": 15601565.0}), "RUT"), "15601565")
+        self.assertEqual(get_col(pd.Series({"RUT": "15601565.0"}), "RUT"), "15601565")
+        self.assertEqual(get_col(pd.Series({"RUT": 15601565}), "RUT"), "15601565")
+        self.assertEqual(get_col(pd.Series({"RUT": 1.5}), "RUT"), "1.5")

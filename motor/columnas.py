@@ -7,6 +7,7 @@ por patrones en minúscula en vez de un nombre de columna exacto.
 """
 
 import datetime as _dt
+import re
 
 import pandas as pd
 
@@ -91,8 +92,12 @@ def get_col(row, key):
                     return val.strftime("%d/%m/%Y")
                 if isinstance(val, _dt.time):
                     return val.strftime("%H:%M")
+                if isinstance(val, float) and val.is_integer():
+                    return str(int(val))
                 s = str(val).strip()
-                return s[:-2] if s.endswith(".0") else s
+                # Solo un número entero leído como decimal («15601565.0») pierde
+                # el «.0»; un texto como «SPORTAGE 2.0» o «SANTA RITA .0» queda igual.
+                return s[:-2] if re.fullmatch(r"\d+\.0", s) else s
     return ""
 
 

@@ -66,6 +66,8 @@ from motor.agrupacion import construir_grupos, detectar_mes_predominante, filtra
 from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
+from motor.ejecucion_lotes import EjecutorEnProcesos
+from motor.pdf import conversion_disponible
 from motor.plantilla import PlantillaNoDisponible, generar_cartas_certificadas
 from motor.reportes import escribir_log_errores, exportar_duplicados
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta
@@ -76,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 # El worker anota un latido en la corrida al terminar cada paquete (menos
 # de 1 min con 50 cartas; un paquete se corta a los
-# motor.plantilla.TIEMPO_MAXIMO_LOTE). Una corrida «en curso» sin latido por
+# motor.ejecucion_lotes.TIEMPO_MAXIMO_LOTE). Una corrida «en curso» sin latido por
 # más que esto quedó huérfana —el worker murió a la mitad— y otro la retoma.
 CORRIDA_INTERRUMPIDA_TRAS = timedelta(minutes=7)
 
@@ -161,6 +163,8 @@ class SolicitudGeneracion:
     # primera fecha de `fechas_tanda`, las siguientes a la segunda, etc.
     fechas_tanda: list = field(default_factory=list)
     cartas_por_fecha: int = 0
+    # Además del Word, el PDF de cada paquete (no se puede modificar).
+    con_pdf: bool = False
 
     def __post_init__(self):
         if self.archivo_nomina is not None and not self.nombre_nomina:
@@ -688,6 +692,7 @@ def _escribir_trabajo(carpeta_abs, incluidos, slots, solicitud):
         "cargo_firma": solicitud.cargo_firma,
         "fecha_sentencia": solicitud.fecha_sentencia.isoformat() if solicitud.fecha_sentencia else None,
         "n_cartas_paquete": solicitud.n_cartas_paquete,
+        "con_pdf": solicitud.con_pdf,
     }
     temporal = carpeta_abs / f"{TRABAJO}.tmp"
     temporal.write_text(json.dumps(trabajo, ensure_ascii=False), encoding="utf-8")
@@ -697,6 +702,8 @@ def _escribir_trabajo(carpeta_abs, incluidos, slots, solicitud):
 def _leer_trabajo(carpeta_abs):
     trabajo = json.loads((carpeta_abs / TRABAJO).read_text(encoding="utf-8"))
     trabajo["slots"] = {pat: tuple(slot) for pat, slot in trabajo["slots"].items()}
+    # Las corridas que quedaron en cola antes de que existiera el PDF no lo traen.
+    trabajo.setdefault("con_pdf", False)
     if trabajo["fecha_sentencia"]:
         trabajo["fecha_sentencia"] = date.fromisoformat(trabajo["fecha_sentencia"])
     return trabajo
@@ -794,7 +801,19 @@ def _config_motor(juzgado, trabajo, tipo_carta):
             tipo: juzgado.plantilla_propia(tipo).path
             for tipo in TipoCarta.values if juzgado.plantilla_propia(tipo)
         },
+        "pdf": {"binario": settings.JPLTAG_SOFFICE} if trabajo["con_pdf"] else None,
     }
+
+
+def pdf_disponible():
+    """¿Este servidor puede entregar las cartas también en PDF?"""
+    return conversion_disponible(settings.JPLTAG_SOFFICE)
+
+
+def _ejecutor_de_lotes():
+    """Cada paquete se arma en un proceso hijo; hasta
+    JPLTAG_PAQUETES_EN_PARALELO a la vez (ver config/settings.py)."""
+    return EjecutorEnProcesos(paralelos=settings.JPLTAG_PAQUETES_EN_PARALELO)
 
 
 def _cupos_de_patentes(slots, bloques_tomados, patentes):
@@ -872,10 +891,11 @@ def ejecutar(corrida, al_latir=None):
             incluidos, juzgado.slug, trabajo["slots"], trabajo["n_cartas_paquete"],
             _config_motor(juzgado, trabajo, corrida.tipo_carta),
             carpeta_salida=str(carpeta_abs / "cartas"), al_terminar_lote=_latido,
-            aislar_lotes=True, lotes_listos=corrida.lotes_hechos,
+            ejecutor=_ejecutor_de_lotes(), reanudar=True,
         )
     except Detenido:
-        # Vuelve a la cola tal como está: el próximo worker sigue desde lotes_hechos.
+        # Vuelve a la cola tal como está: el próximo worker arma solo los
+        # paquetes cuyos archivos falten.
         _es_mia(GeneracionCartas.objects, corrida).update(estado=GeneracionCartas.Estado.PENDIENTE, worker="")
         logger.info("Generación %s devuelta a la cola al detener el worker", corrida.pk)
         return corrida
@@ -901,9 +921,12 @@ def ejecutar(corrida, al_latir=None):
     avisos = dict(corrida.avisos)
     if resultado["errores"]:
         avisos["errores_generando_lotes"] = resultado["errores"]
+    if resultado["lotes_sin_pdf"]:
+        avisos["lotes_sin_pdf"] = resultado["lotes_sin_pdf"]
     _cerrar(
         corrida, devolver=devueltos,
         archivos=[(r, ArchivoGenerado.Tipo.CARTAS) for r in resultado["archivos"]]
+        + [(r, ArchivoGenerado.Tipo.CARTAS_PDF) for r in resultado["archivos_pdf"]]
         + [(resultado["seguimiento"], ArchivoGenerado.Tipo.SEGUIMIENTO)],
         estado=GeneracionCartas.Estado.CON_ERRORES if resultado["errores"] else GeneracionCartas.Estado.OK,
         avisos=avisos,

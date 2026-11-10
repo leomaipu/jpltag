@@ -24,6 +24,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from motor.ejecucion_lotes import EjecutorEnSerie
 from nucleo.models import BloqueHorario, Rol
 from procesos import generacion
 from procesos.models import ArchivoGenerado, GeneracionCartas
@@ -157,7 +158,8 @@ class ColaYWorkerTest(_Base):
         original = plantilla._armar_lote
         with mock.patch.object(plantilla, "_armar_lote",
                                side_effect=lambda *a: llamadas.append(a[1]) or original(*a)):
-            with override_settings(), mock.patch.object(plantilla, "_en_proceso_aparte", plantilla._llamar):
+            # En este mismo proceso, para poder contar qué paquetes se arman.
+            with mock.patch.object(generacion, "_ejecutor_de_lotes", EjecutorEnSerie):
                 generacion.procesar_siguiente("w2")
         corrida.refresh_from_db()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
@@ -239,7 +241,7 @@ class ReanudarConArchivoTruncadoTest(TestCase):
             original = plantilla._armar_lote
             with mock.patch.object(plantilla, "_armar_lote", side_effect=lambda *a: armados.append(a[1]) or original(*a)):
                 resultado = plantilla.generar_cartas_certificadas(
-                    grupos, "jpl1", slots, 1, _config(1, "CITACION"), carpeta_salida=carpeta, lotes_listos=3,
+                    grupos, "jpl1", slots, 1, _config(1, "CITACION"), carpeta_salida=carpeta, reanudar=True,
                 )
             self.assertEqual(armados, [2])
             self.assertTrue(plantilla._es_docx(segundo))
@@ -249,11 +251,11 @@ class ReanudarConArchivoTruncadoTest(TestCase):
 
 class ProcesoDelPaqueteTest(TestCase):
     def test_un_paquete_colgado_se_corta(self):
-        from motor import plantilla
+        from motor import ejecucion_lotes
 
-        with mock.patch.object(plantilla, "TIEMPO_MAXIMO_LOTE", 1):
-            with self.assertRaises(plantilla.LoteInterrumpido):
-                plantilla._en_proceso_aparte(reloj.sleep, 30)
+        with mock.patch.object(ejecucion_lotes, "TIEMPO_MAXIMO_LOTE", 1):
+            (hecho,) = ejecucion_lotes.EjecutorEnProcesos().ejecutar([ejecucion_lotes.Tarea(1, reloj.sleep, (30,))])
+        self.assertIsInstance(hecho.error, ejecucion_lotes.LoteInterrumpido)
 
 
 class TopePorArchivoTest(_Base):

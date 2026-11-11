@@ -562,9 +562,6 @@ def _producir_lote(plan, encargo):
     PDF no salió, o None: si el PDF falla —por lo que sea— el Word igual
     queda (las cartas no se pierden)."""
     if not (encargo.reanudar and _es_docx(plan.archivo)):
-        # Fuera el de una generación anterior en la misma carpeta: desde acá,
-        # un Word completo con este nombre es el de este encargo.
-        _borrar(plan.archivo)
         _armar_lote(plan.patentes, plan.numero, plan.primera_carta, encargo.slots, encargo.config,
                     encargo.ruta_plantilla, encargo.max_causas, plan.archivo)
     if not encargo.con_pdf:
@@ -727,6 +724,13 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
     encargo = _Encargo(slots, config, ruta_plantilla, max_causas, reanudar, conversor_pdf)
     planes = _planificar_lotes(lotes, carpeta, base_lote)
     listos = {p.numero for p in planes if reanudar and encargo.lote_listo(p)}
+    if not reanudar:
+        # Fuera lo de una generación anterior en la misma carpeta, ANTES de
+        # lanzar nada: así, pase lo que pase con un lote, un archivo completo
+        # con su nombre solo puede ser el de esta generación.
+        for plan in planes:
+            for ruta in encargo.archivos_de(plan):
+                _borrar(ruta)
     tareas = [Tarea(p.numero, _producir_lote, (p, encargo)) for p in planes if p.numero not in listos]
     errores_por_lote = {}
     sin_pdf = set()

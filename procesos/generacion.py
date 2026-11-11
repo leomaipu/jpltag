@@ -940,6 +940,9 @@ def ejecutar(corrida, al_latir=None):
         avisos["lotes_sin_pdf"] = resultado["lotes_sin_pdf"]
     if trabajo["con_pdf"] and conversor_pdf is None:
         avisos["pdf_apagado"] = True
+        # Los PDF de una pasada anterior, cuando aún se convertía, no se entregan.
+        for sobrante in (carpeta_abs / "cartas").glob("*.pdf"):
+            sobrante.unlink(missing_ok=True)
     _cerrar(
         corrida, devolver=devueltos,
         archivos=[(r, ArchivoGenerado.Tipo.CARTAS) for r in resultado["archivos"]]

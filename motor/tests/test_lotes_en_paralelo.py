@@ -199,6 +199,27 @@ class ConPdfTest(unittest.TestCase):
             self.assertEqual((len(resultado["archivos"]), resultado["lotes_sin_pdf"], resultado["errores"]), (2, [1, 2], []))
             self.assertEqual(len(list(Path(carpeta).glob("*.docx"))), 2)
 
+    def test_sin_reanudar_nunca_se_entrega_un_word_de_una_generacion_anterior(self):
+        """Aunque el lote ni siquiera llegue a empezar (no se pudo crear su proceso)."""
+        from docx import Document
+
+        from motor import ejecucion_lotes
+
+        def nunca_arranca(tarea, tiempo):
+            raise OSError(11, "Resource temporarily unavailable")
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            viejos = {f"ZZZZ{i:02d}": _info((1,)) for i in range(2)}
+            generar_cartas_certificadas(viejos, "jpl1", _slots(viejos), 1, _config(1, "CITACION"), carpeta_salida=carpeta)
+            self.assertIn("ZZZZ00", texto_de(Document(str(Path(carpeta, "jpl1_Cartas_Certificadas_Lote_1.docx")))))
+            with mock.patch.object(ejecucion_lotes, "_Hijo", nunca_arranca), \
+                    self.assertLogs("motor.plantilla", level="ERROR"):
+                resultado = _generar(carpeta, n=2, por_lote=1, conversor_pdf=_ConversorQue(lambda r: None),
+                                     ejecutor=EjecutorEnProcesos(paralelos=2))
+            self.assertEqual((resultado["archivos"], resultado["lotes_sin_pdf"]), ([], []))
+            self.assertEqual(len(resultado["errores"]), 2)
+            self.assertEqual(list(Path(carpeta).glob("*.docx")), [])
+
     def test_un_lote_cuyo_word_no_sale_no_deja_archivos_ni_usa_uno_de_una_generacion_anterior(self):
         original = plantilla._armar_lote
 

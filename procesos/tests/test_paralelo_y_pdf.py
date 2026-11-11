@@ -175,6 +175,7 @@ class OpcionPdfTest(_Base):
         self.assertTrue(corrida.avisos["pdf_apagado"])
         self.assertNotIn("lotes_sin_pdf", corrida.avisos)
         self.assertContains(self.client.get(f"/resultado/{corrida.pk}/"), "salieron solo en Word")
+        self.assertEqual(list((Path(_TMP_SALIDAS) / corrida.carpeta_salida / "cartas").glob("*.pdf")), [])
 
     def test_la_eleccion_se_conserva_al_preguntar_por_patentes_repetidas(self):
         with _con_pdf_ofrecido(False):

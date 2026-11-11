@@ -241,6 +241,19 @@ class EjecutorEnProcesosTest(unittest.TestCase):
         self.assertIsInstance(resultados["no sale"].error, TareaInterrumpida)
         self.assertEqual(_hijos_de_este_proceso(), [])
 
+    def test_si_el_hijo_muerto_ya_fue_recogido_no_se_corta_ningun_grupo(self):
+        """Su identificador pudo pasar a otro proceso: cortar «su» grupo sería cortar a otro."""
+        from motor import ejecucion_lotes
+        from unittest import mock
+
+        hijo = ejecucion_lotes._Hijo(Tarea(1, _morir, (0,)), 30)
+        os.waitpid(hijo.proceso.pid, 0)        # alguien más lo recogió (multiprocessing, al lanzar otro)
+        self.assertFalse(hijo._sin_recoger())
+        with mock.patch.object(os, "killpg") as killpg:
+            resultado = hijo.resultado()
+        killpg.assert_not_called()
+        self.assertIsInstance(resultado.error, TareaInterrumpida)
+
     def test_si_no_se_puede_crear_el_proceso_falla_esa_tarea_y_no_toda_la_corrida(self):
         from motor import ejecucion_lotes
         from unittest import mock

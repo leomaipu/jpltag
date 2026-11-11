@@ -125,7 +125,8 @@ class _Hijo:
         except EOFError:
             # Murió sin entregar (p. ej. lo cerró el sistema por memoria): lo
             # que hubiera lanzado quedó sin dueño y se corta con su grupo.
-            self._cortar()
+            if self._sin_recoger():
+                self._cortar()
             self._esperar()
             return Resultado(self.tarea.clave, error=TareaInterrumpida(
                 f"el proceso de la tarea terminó sin resultado (código {self.proceso.exitcode})"
@@ -145,7 +146,7 @@ class _Hijo:
         ))
 
     def matar(self):
-        if self.proceso.is_alive():
+        if self.proceso.is_alive() and self._sin_recoger():
             self._cortar()
         self.proceso.join()
         self.lectura.close()
@@ -154,14 +155,24 @@ class _Hijo:
         # Ya entregó (o murió): solo falta que el proceso salga. Si no sale
         # —cerró la tubería y sigue vivo— se corta, para no detener a los demás.
         self.proceso.join(_GRACIA_AL_TERMINAR)
-        if self.proceso.is_alive():
+        if self.proceso.is_alive() and self._sin_recoger():
             self._cortar()
             self.proceso.join()
         self.lectura.close()
 
+    def _sin_recoger(self):
+        """¿El hijo sigue sin recoger (vivo o terminado)? Mientras sea así su
+        identificador no se reutiliza y cortar su grupo no toca a nadie más.
+        multiprocessing puede haberlo recogido ya, al lanzar otro proceso."""
+        try:
+            os.waitid(os.P_PID, self.proceso.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+        except ChildProcessError:
+            return False
+        return True
+
     def _cortar(self):
-        """Corta al hijo y a todo su grupo. Solo se llama antes de recoger al
-        hijo (join): mientras tanto su identificador no se reutiliza."""
+        """Corta al hijo y a todo su grupo. Solo si el hijo está sin recoger
+        (vivo, o _sin_recoger): su identificador no pudo reutilizarse."""
         try:
             os.killpg(self.proceso.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):

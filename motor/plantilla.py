@@ -88,7 +88,6 @@ import io
 import logging
 import os
 import re
-import shutil
 from dataclasses import dataclass
 
 import pandas as pd
@@ -101,7 +100,6 @@ from jinja2 import Environment, StrictUndefined, UndefinedError
 
 from .agenda import SLOT_SIN_AGENDA
 from .ejecucion_lotes import EjecutorEnSerie, Tarea
-from .pdf import carpeta_de_trabajo, es_pdf, ruta_pdf_de
 from .agrupacion import expandir_en_paginas
 from .revisiones import plantilla_limpia
 from .cartas import (
@@ -544,11 +542,18 @@ class _Encargo:
     ruta_plantilla: str
     max_causas: int
     reanudar: bool
-    convertir_a_pdf: object = None    # función(ruta_docx) -> ruta_pdf, o None si no se pidió PDF
+    conversor_pdf: object = None    # ver motor.pdf.ConversorLibreOffice; None si no se pidió PDF
 
     @property
     def con_pdf(self):
-        return self.convertir_a_pdf is not None
+        return self.conversor_pdf is not None
+
+    def lote_listo(self, plan):
+        """¿El paquete ya quedó completo en una pasada anterior de esta corrida?"""
+        return _es_docx(plan.archivo) and (not self.con_pdf or self.conversor_pdf.listo(plan.archivo))
+
+    def archivos_de(self, plan):
+        return [plan.archivo] + ([self.conversor_pdf.ruta_de(plan.archivo)] if self.con_pdf else [])
 
 
 def _producir_lote(plan, encargo):
@@ -557,21 +562,19 @@ def _producir_lote(plan, encargo):
     PDF no salió, o None: si el PDF falla —por lo que sea— el Word igual
     queda (las cartas no se pierden)."""
     if not (encargo.reanudar and _es_docx(plan.archivo)):
+        # Fuera el de una generación anterior en la misma carpeta: desde acá,
+        # un Word completo con este nombre es el de este encargo.
+        _borrar(plan.archivo)
         _armar_lote(plan.patentes, plan.numero, plan.primera_carta, encargo.slots, encargo.config,
                     encargo.ruta_plantilla, encargo.max_causas, plan.archivo)
     if not encargo.con_pdf:
         return None
     try:
-        encargo.convertir_a_pdf(plan.archivo)
+        encargo.conversor_pdf.convertir(plan.archivo)
     except Exception as exc:  # noqa: BLE001 — el PDF es un extra: nada de él debe botar el lote
-        _borrar(ruta_pdf_de(plan.archivo))     # tampoco sirve uno de una pasada anterior
+        encargo.conversor_pdf.descartar(plan.archivo)     # tampoco sirve uno de una pasada anterior
         return f"{type(exc).__name__}: {exc}"
     return None
-
-
-def _lote_listo(nombre_archivo, con_pdf):
-    """¿El paquete ya quedó completo en una pasada anterior de esta corrida?"""
-    return _es_docx(nombre_archivo) and (not con_pdf or es_pdf(ruta_pdf_de(nombre_archivo)))
 
 
 def _borrar(ruta):
@@ -629,18 +632,18 @@ def _planificar_lotes(lotes, carpeta, base_lote):
     return planes
 
 
-def _borrar_temporales(planes):
+def _borrar_temporales(planes, encargo):
     """Un lote cortado a mitad de guardar deja su archivo temporal (nunca
-    uno a medias con el nombre definitivo) y, si estaba convirtiendo, la
-    carpeta de trabajo de la conversión: se borran."""
+    uno a medias con el nombre definitivo) y, si estaba convirtiendo, lo
+    que el conversor tuviera a medias: se borra."""
     for plan in planes:
         _borrar(f"{plan.archivo}.tmp")
-        _borrar(f"{ruta_pdf_de(plan.archivo)}.tmp")
-        shutil.rmtree(carpeta_de_trabajo(plan.archivo), ignore_errors=True)
+        if encargo.con_pdf:
+            encargo.conversor_pdf.limpiar(plan.archivo)
 
 
 def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, config, carpeta_salida=None,
-                                al_terminar_lote=None, ejecutor=None, reanudar=False, convertir_a_pdf=None):
+                                al_terminar_lote=None, ejecutor=None, reanudar=False, conversor_pdf=None):
     """Genera las cartas de citación en lotes correlativos .docx, todas
     dentro de una carpeta para este envío, junto con el Excel de
     seguimiento (Lote / N° de Carta / N° de Parte / Rol).
@@ -679,10 +682,10 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
     El detalle técnico de un lote que falla va al log del servidor, no a
     "errores" (que se muestra a quien generó las cartas).
 
-    `convertir_a_pdf`, si se pasa (una función que recibe la ruta del Word
-    y deja su PDF al lado, como motor.pdf.convertir_a_pdf), pide además el
-    PDF de cada lote. Si falla en un lote, ese lote queda sin PDF pero con
-    su Word.
+    `conversor_pdf`, si se pasa (un motor.pdf.ConversorLibreOffice u otro
+    con sus mismas operaciones), pide además el PDF de cada lote. Si la
+    conversión de un lote falla —o el proceso muere mientras convierte—,
+    ese lote queda sin PDF pero con su Word.
 
     `al_terminar_lote(n)`, si se pasa, se llama después de cada lote (haya
     salido o no) con la cantidad de lotes ya terminados: así quien genera en
@@ -721,10 +724,9 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         carpeta = crear_carpeta_envio(f"{base_lote}_Envio")
     resultado["carpeta"] = carpeta
 
-    encargo = _Encargo(slots, config, ruta_plantilla, max_causas, reanudar, convertir_a_pdf)
-    con_pdf = encargo.con_pdf
+    encargo = _Encargo(slots, config, ruta_plantilla, max_causas, reanudar, conversor_pdf)
     planes = _planificar_lotes(lotes, carpeta, base_lote)
-    listos = {p.numero for p in planes if reanudar and _lote_listo(p.archivo, con_pdf)}
+    listos = {p.numero for p in planes if reanudar and encargo.lote_listo(p)}
     tareas = [Tarea(p.numero, _producir_lote, (p, encargo)) for p in planes if p.numero not in listos]
     errores_por_lote = {}
     sin_pdf = set()
@@ -733,7 +735,13 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
     try:
         for hecho in resultados:
             plan = planes[hecho.clave - 1]
-            if hecho.error is not None:
+            if hecho.error is not None and encargo.con_pdf and _es_docx(plan.archivo):
+                # El Word alcanzó a quedar completo: lo que se cortó fue la
+                # conversión (p. ej. el sistema cerró el proceso por memoria).
+                logger.error("El lote %s de %s quedó sin PDF: %s", plan.numero, base_lote, hecho.error)
+                encargo.conversor_pdf.descartar(plan.archivo)
+                sin_pdf.add(plan.numero)
+            elif hecho.error is not None:
                 logger.error("Falló el lote %s de %s: %s", plan.numero, base_lote,
                              getattr(hecho.error, "detalle", ""), exc_info=hecho.error)
                 errores_por_lote[plan.numero] = (
@@ -751,7 +759,7 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         # Si se abandona a medio camino (detención, cancelación), corta los
         # lotes que estaban armándose; lo que dejaron a medio escribir sobra.
         resultados.close()
-        _borrar_temporales(planes)
+        _borrar_temporales(planes, encargo)
 
     # El resultado se arma en orden de lote, no en el que terminaron.
     seguimiento = []
@@ -760,16 +768,16 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
             resultado["errores"].append(errores_por_lote[plan.numero])
             resultado["patentes_fallidas"].extend(pat for pat, _ in plan.patentes)
             # Lo que haya alcanzado a escribir no se entrega: no debe quedar.
-            _borrar(plan.archivo)
-            _borrar(ruta_pdf_de(plan.archivo))
+            for ruta in encargo.archivos_de(plan):
+                _borrar(ruta)
             continue
         seguimiento.extend(_seguimiento_de_lote(plan.patentes, plan.numero, plan.primera_carta, tipo_carta))
         resultado["archivos"].append(plan.archivo)
-        if con_pdf:
+        if encargo.con_pdf:
             if plan.numero in sin_pdf:
                 resultado["lotes_sin_pdf"].append(plan.numero)
             else:
-                resultado["archivos_pdf"].append(ruta_pdf_de(plan.archivo))
+                resultado["archivos_pdf"].append(encargo.conversor_pdf.ruta_de(plan.archivo))
 
     if seguimiento:
         ruta_seguimiento = os.path.join(carpeta, f"{base_lote}_seguimiento_cartas.xlsx")

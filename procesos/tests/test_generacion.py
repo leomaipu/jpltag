@@ -159,7 +159,7 @@ class ColaYWorkerTest(_Base):
         with mock.patch.object(plantilla, "_armar_lote",
                                side_effect=lambda *a: llamadas.append(a[1]) or original(*a)):
             # En este mismo proceso, para poder contar qué paquetes se arman.
-            with mock.patch.object(generacion, "_ejecutor_de_lotes", lambda *a: EjecutorEnSerie()):
+            with mock.patch.object(generacion, "_ejecutor_de_lotes", lambda **_: EjecutorEnSerie()):
                 generacion.procesar_siguiente("w2")
         corrida.refresh_from_db()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)

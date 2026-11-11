@@ -277,7 +277,7 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   `JPLTAG_PDF_ACTIVO=True`): la imagen trae LibreOffice
   Writer sin interfaz gráfica y las fuentes de reemplazo de las plantillas
   (Liberation, Caladea, Carlito). Cada paquete se convierte en el mismo
-  proceso hijo que lo armó, con un perfil de LibreOffice desechable en el
+  proceso hijo que lo armó, con un perfil de LibreOffice desechable en
   una carpeta de trabajo junto al Word (se borra al terminar), y queda
   junto al Word. El PDF se abre e imprime sin clave y los lectores no
   ofrecen modificarlo (permisos restringidos con una clave aleatoria que
@@ -286,7 +286,15 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   firma electrónica. La generación tarda cerca del doble y usa más
   memoria: **con PDF, el worker necesita 1,5 GB aun con un solo paquete a
   la vez** (`JPLTAG_WORKER_MEM=1500m`; con 1 GB queda sin margen: medido
-  605 MB del paquete y LibreOffice, más el propio worker). Si la conversión de
+  605 MB del paquete y LibreOffice, más el propio worker). Además, con
+  PDF el plazo de un paquete es de hasta 225 s (120 + 105): el worker debe
+  tener **al menos 240 s para detenerse** (`stop_grace_period` en
+  `13-app-jpltag.sh`; estaba en 150 s) y su healthcheck debe tolerar ese
+  tiempo sin latido. Si el sistema cierra un proceso por memoria mientras
+  convierte, ese paquete queda sin PDF pero con su Word. Conviene que el
+  contenedor del worker use `init: true`: así se recogen los procesos de
+  LibreOffice que se corten. Si el PDF se apaga con corridas en cola que
+  lo pidieron, esas salen solo en Word y la pantalla lo avisa. Si la conversión de
   un paquete falla, sus cartas en Word quedan igual y la pantalla lo
   avisa («Paquetes sin PDF»). Una plantilla propia de un juzgado con una
   fuente que la imagen no trae puede cambiar los saltos de línea en el

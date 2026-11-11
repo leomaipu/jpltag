@@ -169,7 +169,7 @@ class ConLibreOfficeTest(unittest.TestCase):
                     slots = {p: ("15/11/2026", "09:30") for p in grupos}
                     resultado = generar_cartas_certificadas(
                         grupos, f"jpl{n}", slots, 0, _config(n, tipo, max_causas_por_pagina=12),
-                        carpeta_salida=carpeta, convertir_a_pdf=pdf.convertir_a_pdf,
+                        carpeta_salida=carpeta, conversor_pdf=pdf.ConversorLibreOffice(),
                     )
                     self.assertEqual(resultado["lotes_sin_pdf"], [])
                     (ruta,) = resultado["archivos_pdf"]

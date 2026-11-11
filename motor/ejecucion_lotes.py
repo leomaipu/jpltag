@@ -123,6 +123,9 @@ class _Hijo:
         try:
             estado, valor = self.lectura.recv()
         except EOFError:
+            # Murió sin entregar (p. ej. lo cerró el sistema por memoria): lo
+            # que hubiera lanzado quedó sin dueño y se corta con su grupo.
+            self._cortar()
             self._esperar()
             return Resultado(self.tarea.clave, error=TareaInterrumpida(
                 f"el proceso de la tarea terminó sin resultado (código {self.proceso.exitcode})"
@@ -157,6 +160,8 @@ class _Hijo:
         self.lectura.close()
 
     def _cortar(self):
+        """Corta al hijo y a todo su grupo. Solo se llama antes de recoger al
+        hijo (join): mientras tanto su identificador no se reutiliza."""
         try:
             os.killpg(self.proceso.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):

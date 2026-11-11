@@ -38,7 +38,6 @@ Dos tipos de problema, a propósito tratados distinto:
 El worker es uno solo: procesa una corrida a la vez, en orden de llegada.
 """
 
-import functools
 import json
 import logging
 import os
@@ -68,7 +67,7 @@ from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
 from motor.ejecucion_lotes import EjecutorEnProcesos
-from motor.pdf import TIEMPO_MAXIMO_CONVERSION, conversion_disponible, convertir_a_pdf
+from motor.pdf import TIEMPO_MAXIMO_CONVERSION, ConversorLibreOffice, conversion_disponible
 from motor.plantilla import PlantillaNoDisponible, generar_cartas_certificadas
 from motor.reportes import escribir_log_errores, exportar_duplicados
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta
@@ -811,11 +810,13 @@ def pdf_disponible():
     return settings.JPLTAG_PDF_ACTIVO and conversion_disponible(settings.JPLTAG_SOFFICE)
 
 
-def _convertidor_pdf(trabajo):
-    """La función que convierte un paquete a PDF, o None si no se pidió."""
-    if not trabajo["con_pdf"]:
+def _conversor_pdf(trabajo):
+    """El conversor a PDF de una corrida, o None si no se pidió —o si el
+    PDF se apagó en el servidor después de que la corrida entró a la cola
+    (por ejemplo, por memoria): en ese caso las cartas salen solo en Word."""
+    if not (trabajo["con_pdf"] and pdf_disponible()):
         return None
-    return functools.partial(convertir_a_pdf, binario=settings.JPLTAG_SOFFICE)
+    return ConversorLibreOffice(binario=settings.JPLTAG_SOFFICE)
 
 
 def _ejecutor_de_lotes(con_pdf=False):
@@ -899,12 +900,13 @@ def ejecutar(corrida, al_latir=None):
             if al_latir:
                 al_latir()
 
+        conversor_pdf = _conversor_pdf(trabajo)
         resultado = generar_cartas_certificadas(
             incluidos, juzgado.slug, trabajo["slots"], trabajo["n_cartas_paquete"],
             _config_motor(juzgado, trabajo, corrida.tipo_carta),
             carpeta_salida=str(carpeta_abs / "cartas"), al_terminar_lote=_latido,
-            ejecutor=_ejecutor_de_lotes(trabajo["con_pdf"]), reanudar=True,
-            convertir_a_pdf=_convertidor_pdf(trabajo),
+            ejecutor=_ejecutor_de_lotes(con_pdf=conversor_pdf is not None), reanudar=True,
+            conversor_pdf=conversor_pdf,
         )
     except Detenido:
         # Vuelve a la cola tal como está: el próximo worker arma solo los
@@ -936,6 +938,8 @@ def ejecutar(corrida, al_latir=None):
         avisos["errores_generando_lotes"] = resultado["errores"]
     if resultado["lotes_sin_pdf"]:
         avisos["lotes_sin_pdf"] = resultado["lotes_sin_pdf"]
+    if trabajo["con_pdf"] and conversor_pdf is None:
+        avisos["pdf_apagado"] = True
     _cerrar(
         corrida, devolver=devueltos,
         archivos=[(r, ArchivoGenerado.Tipo.CARTAS) for r in resultado["archivos"]]

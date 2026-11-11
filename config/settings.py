@@ -249,8 +249,11 @@ JPLTAG_PAQUETES_EN_PARALELO = env.int("JPLTAG_PAQUETES_EN_PARALELO", default=1)
 # con 1 CPU (medido con las patentes más largas de la nómina real,
 # 29-oct-2026): con paquetes de 100 cartas, o con más paquetes en paralelo
 # que núcleos, conviene 240. Si se pide PDF, el plazo de la conversión se
-# suma aparte (motor.pdf.TIEMPO_MAXIMO_CONVERSION). El worker debe tener
-# para detenerse más que este plazo (stop_grace_period en 13-app-jpltag.sh).
+# suma aparte (motor.pdf.TIEMPO_MAXIMO_CONVERSION + 15 s: 225 s en total
+# con los valores por defecto). El worker debe tener para detenerse más
+# que el plazo total (stop_grace_period en 13-app-jpltag.sh: 150 s sin
+# PDF, al menos 240 s con PDF), y el total debe quedar bajo los 7 min de
+# generacion.CORRIDA_INTERRUMPIDA_TRAS.
 JPLTAG_SEGUNDOS_POR_PAQUETE = env.int("JPLTAG_SEGUNDOS_POR_PAQUETE", default=120)
 # «También en PDF» al generar: además del Word, el PDF de cada paquete,
 # convertido con LibreOffice. Apagado por defecto porque pide más memoria

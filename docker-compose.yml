@@ -35,6 +35,7 @@ services:
   worker:
     image: jpltag:dev
     command: python manage.py procesar_generaciones
+    init: true    # recoge los procesos de LibreOffice que se corten (PDF)
     depends_on:
       jpltag:
         condition: service_started

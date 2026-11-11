@@ -150,7 +150,8 @@ class OpcionPdfTest(_Base):
 
     @override_settings(JPLTAG_SOFFICE="soffice-que-no-existe")
     def test_si_la_conversion_falla_las_cartas_en_word_salen_y_se_avisa(self):
-        with _con_pdf_ofrecido(True), self.assertLogs("motor.plantilla", level="ERROR"):
+        with _con_pdf_ofrecido(True), mock.patch("procesos.generacion.pdf_disponible", return_value=True), \
+                self.assertLogs("motor.plantilla", level="ERROR"):
             resp = self.subir(("AAAA11", "BBBB22"), n_cartas_paquete=1, con_pdf="on")
         corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
@@ -159,6 +160,21 @@ class OpcionPdfTest(_Base):
         self.assertFalse(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS_PDF).exists())
         self.assertContains(resp, "Paquetes sin PDF")
         self.assertContains(resp, "estos paquetes: 1, 2")
+
+    @override_settings(JPLTAG_GENERAR_EN_LA_PETICION=False)
+    def test_si_el_pdf_se_apaga_con_la_corrida_en_cola_sale_solo_en_word_y_se_avisa(self):
+        with _con_pdf_ofrecido(True):
+            self.subir(("AAAA11",), con_pdf="on")
+        convertidos = []
+        with override_settings(JPLTAG_PDF_ACTIVO=False), \
+                mock.patch("motor.pdf.convertir_a_pdf", side_effect=convertidos.append):
+            generacion.procesar_siguiente("w1")
+        corrida = GeneracionCartas.objects.get()
+        self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
+        self.assertEqual(convertidos, [])
+        self.assertTrue(corrida.avisos["pdf_apagado"])
+        self.assertNotIn("lotes_sin_pdf", corrida.avisos)
+        self.assertContains(self.client.get(f"/resultado/{corrida.pk}/"), "salieron solo en Word")
 
     def test_la_eleccion_se_conserva_al_preguntar_por_patentes_repetidas(self):
         with _con_pdf_ofrecido(False):

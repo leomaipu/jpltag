@@ -68,6 +68,13 @@
 </section>
 {% endif %}
 
+{% if generacion.avisos.pdf_apagado %}
+<section class="bloque" role="alert">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Sin PDF</span></h2>
+  <p class="texto-suave">Se pidió «También en PDF», pero el PDF estaba desactivado en el servidor cuando se armaron las cartas: salieron solo en Word.</p>
+</section>
+{% endif %}
+
 {% if generacion.avisos.lotes_sin_pdf %}
 <section class="bloque" role="alert">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Paquetes sin PDF</span></h2>

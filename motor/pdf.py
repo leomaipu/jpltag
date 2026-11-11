@@ -163,3 +163,37 @@ def _quitar(ruta):
         os.unlink(ruta)
     except OSError:
         pass
+
+
+class ConversorLibreOffice:
+    """El conversor a PDF tal como lo usa quien genera las cartas
+    (motor.plantilla), que solo conoce estas cinco operaciones:
+
+        convertir(ruta_docx)   deja el PDF y devuelve su ruta (o lanza)
+        ruta_de(ruta_docx)     dónde queda el PDF de ese Word
+        listo(ruta_docx)       ¿ese PDF ya está completo?
+        limpiar(ruta_docx)     borra lo que una conversión cortada dejó a medias
+        descartar(ruta_docx)   quita el PDF de ese Word
+
+    Otro conversor sirve igual si ofrece las mismas cinco."""
+
+    def __init__(self, binario=BINARIO_DEFECTO, tiempo_maximo=TIEMPO_MAXIMO_CONVERSION):
+        self.binario = binario
+        self.tiempo_maximo = tiempo_maximo
+
+    def convertir(self, ruta_docx):
+        return convertir_a_pdf(ruta_docx, binario=self.binario, tiempo_maximo=self.tiempo_maximo)
+
+    def ruta_de(self, ruta_docx):
+        return ruta_pdf_de(ruta_docx)
+
+    def listo(self, ruta_docx):
+        return es_pdf(ruta_pdf_de(ruta_docx))
+
+    def limpiar(self, ruta_docx):
+        _quitar(f"{ruta_pdf_de(ruta_docx)}.tmp")
+        shutil.rmtree(carpeta_de_trabajo(ruta_docx), ignore_errors=True)
+
+    def descartar(self, ruta_docx):
+        """Quita el PDF de ese Word (p. ej. uno de una pasada anterior que ya no vale)."""
+        _quitar(ruta_pdf_de(ruta_docx))

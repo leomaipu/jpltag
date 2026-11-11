@@ -163,6 +163,8 @@ DATABASE_URL                 # la genera maipu-nueva-bd jpltag (PostgreSQL vía 
 VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesiones)
 GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
 JPLTAG_MAX_CARTAS_POR_ARCHIVO # opcional — tope de cartas por archivo Word (50)
+JPLTAG_PAQUETES_EN_PARALELO  # opcional — paquetes que el worker arma a la vez (1)
+JPLTAG_SOFFICE               # opcional — programa de LibreOffice para el PDF («soffice»)
 JPLTAG_LOG_NIVEL             # opcional — INFO por defecto
 JPLTAG_AGENDA_ACTIVA         # opcional — False: las cartas no usan la agenda (todas «a coordinar»)
 ```
@@ -244,6 +246,40 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   vuelven a la agenda). Cada hora borra las nóminas guardadas que nadie
   confirmó (aviso de patentes repetidas) después de 12 h; la copia de
   trabajo (`trabajo.json`) se borra al cerrar cada corrida.
+- **Paquetes en paralelo** (`JPLTAG_PAQUETES_EN_PARALELO`, 1 por defecto:
+  igual que siempre). Con más de 1, el worker arma varios paquetes de la
+  misma corrida a la vez, cada uno en su proceso hijo; el N° de Carta, el
+  Reg N° y el Excel de seguimiento no cambian. Acelera casi en proporción
+  mientras haya núcleos libres y multiplica la memoria, así que hay que
+  subir juntos `JPLTAG_PAQUETES_EN_PARALELO`, `JPLTAG_WORKER_CPUS` y
+  `JPLTAG_WORKER_MEM`:
+
+  ```
+  memoria del worker ≈ 0,3 GB + paralelos × (0,15 GB + 6 MB × cartas por archivo)
+                       (+ 0,35 GB por paquete en paralelo si se pide PDF)
+  ```
+
+  Medido el 10-nov-2026 con la nómina real del 2do JPL (peor caso, las
+  patentes con más causas): 450 MB por paquete de 50 cartas y 750 MB con
+  100. Ejemplo para un servidor de 12 hilos y 32 GB:
+  `JPLTAG_PAQUETES_EN_PARALELO=6`, `JPLTAG_WORKER_CPUS=6`,
+  `JPLTAG_WORKER_MEM=8g`, `JPLTAG_MAX_CARTAS_POR_ARCHIVO=100`. Al detener
+  el worker (`docker stop`), los paquetes que estaban a medio armar se
+  cortan y se rehacen al volver; los terminados no se repiten.
+- **PDF** («También en PDF» al generar): la imagen trae LibreOffice
+  Writer sin interfaz gráfica y las fuentes de reemplazo de las plantillas
+  (Liberation, Caladea, Carlito). Cada paquete se convierte en el mismo
+  proceso hijo que lo armó, con un perfil de LibreOffice desechable en el
+  directorio temporal (`TMPDIR`), y queda junto al Word. El PDF se abre e
+  imprime sin clave y los lectores no dejan modificarlo (permisos
+  restringidos con una clave aleatoria que no se guarda); no es una firma
+  electrónica. La generación tarda cerca del doble. Si la conversión de
+  un paquete falla, sus cartas en Word quedan igual y la pantalla lo
+  avisa («Paquetes sin PDF»). Una plantilla propia de un juzgado con una
+  fuente que la imagen no trae puede cambiar los saltos de línea en el
+  PDF: revisar una carta antes de imprimir. Para construir la imagen sin
+  LibreOffice: `docker build --build-arg CON_PDF=0` (la casilla deja de
+  ofrecerse).
 - Tres carpetas persistentes **fuera** de la imagen, en el host:
   `/maipu/data/files/jpltag/media` (logo/sello/firma y las plantillas Word
   propias de cada Juzgado — Módulos 1 y 2, ver README.md),

@@ -236,6 +236,16 @@ SALIDAS_ROOT = BASE_DIR / "salidas"
 # proceso hijo: 50 cartas de las patentes con más causas llegan a ~730 MB
 # (medido el 29-oct-2026 con 1 CPU). El worker tiene 1 GB.
 JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default=50)
+# Paquetes que el worker arma a la vez dentro de una corrida, cada uno en
+# su proceso hijo. Con 1 (por defecto) se comporta como siempre. Subirlo
+# acelera casi en proporción mientras haya núcleos libres, y multiplica la
+# memoria: cada paquete en curso usa ~150 MB + ~6 MB por carta (medido el
+# 10-nov-2026 con la nómina real: 450 MB con 50 cartas, 750 MB con 100).
+# Memoria del worker ≈ 0,3 GB + paralelos × lo que usa un paquete.
+JPLTAG_PAQUETES_EN_PARALELO = env.int("JPLTAG_PAQUETES_EN_PARALELO", default=1)
+# LibreOffice, para entregar además el PDF de cada paquete («También en
+# PDF» al generar). Si el programa no está, la opción no se ofrece.
+JPLTAG_SOFFICE = env.str("JPLTAG_SOFFICE", default="soffice")
 # Agenda de audiencias en las cartas. Apagada mientras la nómina no traiga
 # la fecha de citación: no se reservan cupos y toda citación sale «en fecha
 # y hora a coordinar con el Juzgado». La pantalla de la Agenda sigue

@@ -10,7 +10,7 @@ from motor.reg import validar_reg
 from motor.plantilla import MARCADOR_DESCONOCIDO, validar_plantilla
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta, ahora_local
 
-from .generacion import INCLUIR_REPETIDAS, OMITIR_REPETIDAS
+from .generacion import INCLUIR_REPETIDAS, OMITIR_REPETIDAS, pdf_disponible
 
 
 class IngresarForm(AuthenticationForm):
@@ -114,6 +114,12 @@ class SubirNominaForm(forms.Form):
     )
     # Tope y textos en __init__: dependen de settings.JPLTAG_MAX_CARTAS_POR_ARCHIVO.
     n_cartas_paquete = forms.IntegerField(label="Cartas por paquete", min_value=0, required=False)
+    # Solo se ofrece si el servidor puede convertir (ver __init__).
+    con_pdf = forms.BooleanField(
+        label="También en PDF", required=False,
+        help_text="Además del Word, cada paquete se entrega en PDF: se puede imprimir pero no modificar. "
+                  "La generación tarda cerca del doble.",
+    )
     # Se muestra solo cuando la generación avisó que hay patentes que ya
     # recibieron carta en el mismo período (procesos.generacion.EnvioRepetido).
     repetidas = forms.ChoiceField(
@@ -133,6 +139,8 @@ class SubirNominaForm(forms.Form):
         campo.validators.append(MaxValueValidator(tope))
         campo.widget.attrs.update({"min": 0, "max": tope})
         campo.initial = tope
+        if not pdf_disponible():
+            del self.fields["con_pdf"]
         campo.error_messages = {
             "min_value": "Escribe 0 o un número mayor.",
             "max_value": f"El máximo es {tope} cartas por archivo.",

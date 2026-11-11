@@ -14,10 +14,25 @@
 #     Django/WhiteNoise — no hay fuentes ni JS de terceros que traer.
 #
 # psycopg[binary], pandas, numpy y lxml traen sus propias librerías C en
-# el wheel manylinux — no se necesita instalar nada vía apt para que
-# corran, así que la imagen no lleva apt-get.
+# el wheel manylinux: para la app no se instala nada vía apt.
+#
+# Lo único que viene de apt es LibreOffice Writer (sin interfaz gráfica),
+# que convierte cada paquete de cartas a PDF cuando al generar se marca
+# «También en PDF» (motor/pdf.py), y las fuentes que reemplazan con las
+# mismas medidas a las de las plantillas (Arial → Liberation Sans, Cambria
+# → Caladea, Calibri → Carlito): sin ellas el PDF cambiaría los saltos de
+# línea y una carta podría pasar a una segunda hoja. Para construir la
+# imagen sin PDF: --build-arg CON_PDF=0 (la opción deja de ofrecerse).
 
 FROM python:3.13-slim
+
+ARG CON_PDF=1
+RUN if [ "$CON_PDF" = "1" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends \
+           libreoffice-writer-nogui fonts-liberation fonts-crosextra-caladea fonts-crosextra-carlito \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

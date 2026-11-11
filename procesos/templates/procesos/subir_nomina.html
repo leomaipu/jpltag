@@ -34,6 +34,7 @@
   <input type="hidden" name="reg" value="{{ form.reg.value|default:'' }}">
   <input type="hidden" name="fechas_audiencia" value="{{ form.fechas_audiencia.value|default:'' }}">
   <input type="hidden" name="cartas_por_fecha" value="{{ form.cartas_por_fecha.value|default:'' }}">
+  {% if form.con_pdf and form.con_pdf.value %}<input type="hidden" name="con_pdf" value="on">{% endif %}
   <section class="bloque" role="alert" aria-labelledby="repetir-titulo" tabindex="-1" data-enfocar>
     <h2 id="repetir-titulo" class="seccion__titulo">{% if repetido.es_pregunta %}Hay patentes que ya recibieron carta{% else %}Falta algo para seguir{% endif %}</h2>
     <p class="texto-suave">{{ repetido.mensaje }}</p>
@@ -173,6 +174,12 @@
           <span class="campo__ayuda" id="{{ form.n_cartas_paquete.auto_id }}_helptext">{{ form.n_cartas_paquete.help_text }}</span>
           {{ form.n_cartas_paquete.errors }}
         </div>
+        {% if form.con_pdf %}
+        <div class="campo">
+          <label class="casilla" for="{{ form.con_pdf.id_for_label }}">{{ form.con_pdf }} {{ form.con_pdf.label }}</label>
+          <span class="campo__ayuda" id="{{ form.con_pdf.auto_id }}_helptext">{{ form.con_pdf.help_text }}</span>
+        </div>
+        {% endif %}
       </div>
     </details>
   </div>

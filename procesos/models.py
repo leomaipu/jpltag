@@ -85,11 +85,12 @@ class GeneracionCartas(models.Model):
 
 class ArchivoGenerado(models.Model):
     """Un archivo descargable producido por una GeneracionCartas: un lote
-    de cartas, el Excel de seguimiento, el reporte de duplicados o el log
+    de cartas (en Word y, si se pidió, en PDF), el Excel de seguimiento, el reporte de duplicados o el log
     de errores de procesamiento."""
 
     class Tipo(models.TextChoices):
         CARTAS = "CARTAS", "Cartas (lote)"
+        CARTAS_PDF = "CARTAS_PDF", "Cartas en PDF (lote)"
         SEGUIMIENTO = "SEGUIMIENTO", "Excel de seguimiento"
         DUPLICADOS = "DUPLICADOS", "Reporte de duplicados"
         LOG_ERRORES = "LOG_ERRORES", "Log de errores de procesamiento"

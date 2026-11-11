@@ -8,9 +8,10 @@ propio contenedor, con la misma imagen que la web:
 Debe haber uno solo, pero si por error arrancan dos no se pisan: cada
 corrida queda a nombre del worker que la tomó y solo él anota su avance y
 la cierra. Una corrida cuyo worker murió se retoma cuando su latido tiene
-más de generacion.CORRIDA_INTERRUMPIDA_TRAS, desde el último paquete
-terminado. Al recibir SIGTERM (docker stop) se detiene después del paquete
-en curso y la corrida vuelve a la cola.
+más de generacion.CORRIDA_INTERRUMPIDA_TRAS: los paquetes ya terminados no
+se repiten. Al recibir SIGTERM (docker stop) se detiene cuando termina el
+próximo paquete (los demás que estuvieran armándose en paralelo se cortan
+y se rehacen después) y la corrida vuelve a la cola.
 
 Anota un latido en /tmp/jpltag-worker-latido en cada vuelta y después de
 cada paquete de cartas (el healthcheck del contenedor lo mira).

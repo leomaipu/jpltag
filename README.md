@@ -187,6 +187,17 @@ Controles al preparar:
 - **Tope por archivo:** hasta `JPLTAG_MAX_CARTAS_POR_ARCHIVO` cartas por
   Word (50; «Cartas por paquete» parte ahí). Cada paquete se descarga como
   `.docx` o comprimido en `.zip`.
+- **También en PDF** (opciones adicionales, si el servidor tiene
+  LibreOffice): cada paquete queda además en `.pdf`, que se imprime pero
+  no se puede modificar (`motor/pdf.py`). Si la conversión falla, el Word
+  queda igual y se avisa.
+
+Cómo se arman los paquetes lo decide un ejecutor
+(`motor/ejecucion_lotes.py`): en serie en el mismo proceso (pruebas, uso
+directo del motor) o en procesos hijos, hasta
+`JPLTAG_PAQUETES_EN_PARALELO` a la vez (el worker). `motor/plantilla.py`
+solo le entrega tareas y arma el resultado en orden de paquete, así que el
+N° de Carta y el seguimiento no dependen de cuántos se armen a la vez.
 - **Patentes que ya recibieron carta** del mismo juzgado y período
   (citación y «citación y sentencia» cuentan como la misma familia; la
   sentencia va aparte): se pregunta si generar solo las que faltan o todas

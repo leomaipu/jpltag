@@ -145,6 +145,7 @@ class SubirNominaView(PuedeGenerarCartasMixin, View):
             bloques_audiencia=datos.get("bloques_audiencia") or [],
             fechas_tanda=datos.get("fechas_tanda") or [],
             cartas_por_fecha=datos.get("cartas_por_fecha") or 0,
+            con_pdf=bool(datos.get("con_pdf")),
         )
         if datos.get("nomina"):
             solicitud.archivo_nomina = datos["nomina"]
@@ -245,6 +246,19 @@ def _archivo_del_usuario(request, pk):
     return archivo, ruta_abs
 
 
+def _archivos_para_mostrar(corrida):
+    """Los archivos de una corrida, uno por fila: el PDF de un paquete no va
+    en fila aparte sino junto a su Word (`archivo.pdf`)."""
+    archivos = list(corrida.archivos.all())
+    pdf_por_nombre = {
+        Path(a.nombre_descarga).stem: a for a in archivos if a.tipo == ArchivoGenerado.Tipo.CARTAS_PDF
+    }
+    visibles = [a for a in archivos if a.tipo != ArchivoGenerado.Tipo.CARTAS_PDF]
+    for a in visibles:
+        a.pdf = pdf_por_nombre.get(Path(a.nombre_descarga).stem) if a.tipo == ArchivoGenerado.Tipo.CARTAS else None
+    return visibles
+
+
 class ResultadoView(PuedeGenerarCartasMixin, View):
     # Mientras está en cola o en curso, la pantalla se recarga sola.
     RECARGAR_CADA = 10  # s
@@ -257,7 +271,8 @@ class ResultadoView(PuedeGenerarCartasMixin, View):
         activa = corrida.estado in generacion.ESTADOS_ACTIVOS
         return render(request, "procesos/resultado.html", {
             "generacion": corrida,
-            "archivos": corrida.archivos.all(),
+            "archivos": (archivos := _archivos_para_mostrar(corrida)),
+            "tiene_pdf": any(a.pdf for a in archivos),
             "mes_nombre": MESES[corrida.mes_periodo - 1] if corrida.mes_periodo else None,
             "recargar_cada": self.RECARGAR_CADA if activa else None,
             "antes_en_la_cola": generacion.corridas_antes_en_la_cola(corrida),

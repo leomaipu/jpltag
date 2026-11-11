@@ -117,7 +117,8 @@ class SubirNominaForm(forms.Form):
     # Solo se ofrece si el servidor puede convertir (ver __init__).
     con_pdf = forms.BooleanField(
         label="También en PDF", required=False,
-        help_text="Además del Word, cada paquete se entrega en PDF: se puede imprimir pero no modificar. "
+        help_text="Además del Word, cada paquete se entrega en PDF: se abre e imprime igual en cualquier "
+                  "computador y los lectores de PDF no dejan editarlo. No es una firma electrónica. "
                   "La generación tarda cerca del doble.",
     )
     # Se muestra solo cuando la generación avisó que hay patentes que ya

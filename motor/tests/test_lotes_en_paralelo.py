@@ -2,6 +2,7 @@
 resultado no depende de cuántos se armen a la vez ni del orden en que
 terminen, y una interrupción se puede retomar."""
 
+import functools
 import tempfile
 import unittest
 from pathlib import Path
@@ -130,19 +131,66 @@ class ConPdfTest(unittest.TestCase):
 
     def test_si_el_pdf_falla_el_word_queda_y_el_lote_se_informa(self):
         with tempfile.TemporaryDirectory() as carpeta, self.assertLogs("motor.plantilla", level="ERROR"):
-            resultado = _generar(carpeta, n=3, por_lote=1, config={"pdf": {"binario": "soffice-que-no-existe"}})
+            resultado = _generar(carpeta, n=3, por_lote=1, convertir_a_pdf=functools.partial(pdf.convertir_a_pdf, binario="soffice-que-no-existe"))
             self.assertEqual(len(resultado["archivos"]), 3)
             self.assertEqual(resultado["archivos_pdf"], [])
             self.assertEqual(resultado["lotes_sin_pdf"], [1, 2, 3])
             self.assertEqual(resultado["errores"], [])            # las cartas salieron
             self.assertEqual(resultado["patentes_fallidas"], [])
 
+    def test_cualquier_falla_del_conversor_deja_el_lote_sin_pdf_pero_con_su_word(self):
+        def sin_permiso(_ruta):
+            raise PermissionError(13, "Permission denied")
+
+        with tempfile.TemporaryDirectory() as carpeta, self.assertLogs("motor.plantilla", level="ERROR"):
+            resultado = _generar(carpeta, n=2, por_lote=1, convertir_a_pdf=sin_permiso,
+                                 ejecutor=EjecutorEnProcesos(paralelos=2))
+            self.assertEqual((len(resultado["archivos"]), resultado["lotes_sin_pdf"]), (2, [1, 2]))
+            self.assertEqual((resultado["errores"], resultado["patentes_fallidas"]), ([], []))
+
+    def test_un_conversor_colgado_no_hace_fallar_el_lote_si_el_plazo_del_lote_lo_cubre(self):
+        with tempfile.TemporaryDirectory() as carpeta, self.assertLogs("motor.plantilla", level="ERROR"):
+            falso = Path(carpeta, "soffice-colgado")
+            falso.write_text("#!/bin/sh\nsleep 60\n")
+            falso.chmod(0o755)
+            resultado = _generar(
+                carpeta, n=2, por_lote=1, ejecutor=EjecutorEnProcesos(paralelos=2, tiempo_maximo=30),
+                convertir_a_pdf=functools.partial(pdf.convertir_a_pdf, binario=str(falso), tiempo_maximo=1),
+            )
+            self.assertEqual((len(resultado["archivos"]), resultado["lotes_sin_pdf"], resultado["errores"]), (2, [1, 2], []))
+            self.assertEqual(sorted(p.suffix for p in Path(carpeta).iterdir() if p.name != falso.name),
+                             [".docx", ".docx", ".xlsx"])
+
+    def test_un_lote_que_falla_no_deja_archivos_sin_registrar(self):
+        def falla_tras_escribir(ruta):
+            raise SystemExit("el proceso se cae después de guardar el Word")
+
+        with tempfile.TemporaryDirectory() as carpeta, self.assertLogs("motor.plantilla", level="ERROR"):
+            resultado = _generar(carpeta, n=2, por_lote=1, convertir_a_pdf=falla_tras_escribir,
+                                 ejecutor=EjecutorEnProcesos(paralelos=2))
+            self.assertEqual(len(resultado["errores"]), 2)
+            self.assertEqual(list(Path(carpeta).glob("*.docx")) + list(Path(carpeta).glob("*.pdf")), [])
+
+    @unittest.skipUnless(HAY_LIBREOFFICE, "LibreOffice no está instalado")
+    def test_al_abandonar_a_mitad_de_una_conversion_no_queda_su_carpeta_de_trabajo(self):
+        class Alto(Exception):
+            pass
+
+        def detener(_):
+            raise Alto()
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            with self.assertRaises(Alto):
+                _generar(carpeta, n=6, por_lote=1, ejecutor=EjecutorEnProcesos(paralelos=3),
+                         convertir_a_pdf=pdf.convertir_a_pdf, al_terminar_lote=detener)
+            self.assertEqual([p.name for p in Path(carpeta).iterdir() if p.name.endswith(("-trabajo", ".tmp"))], [])
+
     @unittest.skipUnless(HAY_LIBREOFFICE, "LibreOffice no está instalado")
     def test_un_pdf_por_lote_en_paralelo(self):
         from pypdf import PdfReader
 
         with tempfile.TemporaryDirectory() as carpeta:
-            resultado = _generar(carpeta, n=5, por_lote=2, config={"pdf": {}}, ejecutor=EjecutorEnProcesos(paralelos=3))
+            resultado = _generar(carpeta, n=5, por_lote=2, convertir_a_pdf=pdf.convertir_a_pdf, ejecutor=EjecutorEnProcesos(paralelos=3))
             self.assertEqual([Path(r).name for r in resultado["archivos_pdf"]],
                              [f"jpl1_Cartas_Certificadas_Lote_{i}.pdf" for i in (1, 2, 3)])
             self.assertEqual([len(PdfReader(r).pages) for r in resultado["archivos_pdf"]], [2, 2, 1])
@@ -152,13 +200,13 @@ class ConPdfTest(unittest.TestCase):
     @unittest.skipUnless(HAY_LIBREOFFICE, "LibreOffice no está instalado")
     def test_al_reanudar_un_lote_con_word_pero_sin_pdf_solo_se_convierte(self):
         with tempfile.TemporaryDirectory() as carpeta:
-            _generar(carpeta, n=2, por_lote=1, config={"pdf": {}})
+            _generar(carpeta, n=2, por_lote=1, convertir_a_pdf=pdf.convertir_a_pdf)
             Path(carpeta, "jpl1_Cartas_Certificadas_Lote_2.pdf").write_bytes(b"%PDF-1.7 truncado")
             word_2 = Path(carpeta, "jpl1_Cartas_Certificadas_Lote_2.docx").stat().st_mtime_ns
             armados = []
             original = plantilla._armar_lote
             with mock.patch.object(plantilla, "_armar_lote", side_effect=lambda *a: armados.append(a[1]) or original(*a)):
-                resultado = _generar(carpeta, n=2, por_lote=1, config={"pdf": {}}, reanudar=True)
+                resultado = _generar(carpeta, n=2, por_lote=1, convertir_a_pdf=pdf.convertir_a_pdf, reanudar=True)
             self.assertEqual(armados, [])       # ningún Word se rehízo
             self.assertEqual(Path(carpeta, "jpl1_Cartas_Certificadas_Lote_2.docx").stat().st_mtime_ns, word_2)
             self.assertTrue(all(pdf.es_pdf(r) for r in resultado["archivos_pdf"]))

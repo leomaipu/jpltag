@@ -159,7 +159,7 @@ class ColaYWorkerTest(_Base):
         with mock.patch.object(plantilla, "_armar_lote",
                                side_effect=lambda *a: llamadas.append(a[1]) or original(*a)):
             # En este mismo proceso, para poder contar qué paquetes se arman.
-            with mock.patch.object(generacion, "_ejecutor_de_lotes", EjecutorEnSerie):
+            with mock.patch.object(generacion, "_ejecutor_de_lotes", lambda *a: EjecutorEnSerie()):
                 generacion.procesar_siguiente("w2")
         corrida.refresh_from_db()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
@@ -253,9 +253,9 @@ class ProcesoDelPaqueteTest(TestCase):
     def test_un_paquete_colgado_se_corta(self):
         from motor import ejecucion_lotes
 
-        with mock.patch.object(ejecucion_lotes, "TIEMPO_MAXIMO_LOTE", 1):
-            (hecho,) = ejecucion_lotes.EjecutorEnProcesos().ejecutar([ejecucion_lotes.Tarea(1, reloj.sleep, (30,))])
-        self.assertIsInstance(hecho.error, ejecucion_lotes.LoteInterrumpido)
+        with override_settings(JPLTAG_SEGUNDOS_POR_PAQUETE=1):
+            (hecho,) = generacion._ejecutor_de_lotes().ejecutar([ejecucion_lotes.Tarea(1, reloj.sleep, (30,))])
+        self.assertIsInstance(hecho.error, ejecucion_lotes.TareaInterrumpida)
 
 
 class TopePorArchivoTest(_Base):

@@ -240,11 +240,24 @@ JPLTAG_MAX_CARTAS_POR_ARCHIVO = env.int("JPLTAG_MAX_CARTAS_POR_ARCHIVO", default
 # su proceso hijo. Con 1 (por defecto) se comporta como siempre. Subirlo
 # acelera casi en proporción mientras haya núcleos libres, y multiplica la
 # memoria: cada paquete en curso usa ~150 MB + ~6 MB por carta (medido el
-# 10-nov-2026 con la nómina real: 450 MB con 50 cartas, 750 MB con 100).
+# 10-nov-2026 con la nómina real: 450 MB con 50 cartas, 750 MB con 100),
+# más ~200 MB de LibreOffice si se pide PDF.
 # Memoria del worker ≈ 0,3 GB + paralelos × lo que usa un paquete.
 JPLTAG_PAQUETES_EN_PARALELO = env.int("JPLTAG_PAQUETES_EN_PARALELO", default=1)
-# LibreOffice, para entregar además el PDF de cada paquete («También en
-# PDF» al generar). Si el programa no está, la opción no se ofrece.
+# Plazo para armar el Word de un paquete; pasado eso se corta y el paquete
+# queda como fallido, sin detener la cola. 50 cartas tardan menos de 1 min
+# con 1 CPU (medido con las patentes más largas de la nómina real,
+# 29-oct-2026): con paquetes de 100 cartas, o con más paquetes en paralelo
+# que núcleos, conviene 240. Si se pide PDF, el plazo de la conversión se
+# suma aparte (motor.pdf.TIEMPO_MAXIMO_CONVERSION). El worker debe tener
+# para detenerse más que este plazo (stop_grace_period en 13-app-jpltag.sh).
+JPLTAG_SEGUNDOS_POR_PAQUETE = env.int("JPLTAG_SEGUNDOS_POR_PAQUETE", default=120)
+# «También en PDF» al generar: además del Word, el PDF de cada paquete,
+# convertido con LibreOffice. Apagado por defecto porque pide más memoria
+# para el worker (1,5 GB aun con un paquete a la vez: ver DESPLIEGUE.md);
+# activarlo junto con JPLTAG_WORKER_MEM. Sin LibreOffice en la imagen la
+# opción tampoco se ofrece.
+JPLTAG_PDF_ACTIVO = env.bool("JPLTAG_PDF_ACTIVO", default=False)
 JPLTAG_SOFFICE = env.str("JPLTAG_SOFFICE", default="soffice")
 # Agenda de audiencias en las cartas. Apagada mientras la nómina no traiga
 # la fecha de citación: no se reservan cupos y toda citación sale «en fecha

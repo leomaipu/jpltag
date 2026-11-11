@@ -88,6 +88,7 @@ import io
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass
 
 import pandas as pd
@@ -100,7 +101,7 @@ from jinja2 import Environment, StrictUndefined, UndefinedError
 
 from .agenda import SLOT_SIN_AGENDA
 from .ejecucion_lotes import EjecutorEnSerie, Tarea
-from .pdf import ErrorPdf, convertir_a_pdf, es_pdf, ruta_pdf_de
+from .pdf import carpeta_de_trabajo, es_pdf, ruta_pdf_de
 from .agrupacion import expandir_en_paginas
 from .revisiones import plantilla_limpia
 from .cartas import (
@@ -534,28 +535,50 @@ def _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plan
     os.replace(temporal, nombre_archivo)
 
 
-def _producir_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plantilla, max_causas,
-                   nombre_archivo, reanudar):
-    """Deja listo UN paquete: su Word y, si se pidió (config["pdf"]), su PDF.
-    Al reanudar no rehace el Word que ya está completo. Devuelve
-    {"pdf": ruta o None, "error_pdf": mensaje o None}: si el PDF falla, el
-    Word igual queda (las cartas no se pierden)."""
-    if not (reanudar and _es_docx(nombre_archivo)):
-        _armar_lote(lote_patentes, num_lote, primera_carta, slots, config, ruta_plantilla, max_causas,
-                    nombre_archivo)
-    hecho = {"pdf": None, "error_pdf": None}
-    opciones_pdf = config.get("pdf")
-    if opciones_pdf is not None:
-        try:
-            hecho["pdf"] = convertir_a_pdf(nombre_archivo, **opciones_pdf)
-        except ErrorPdf as exc:
-            hecho["error_pdf"] = str(exc)
-    return hecho
+@dataclass(frozen=True)
+class _Encargo:
+    """Lo que es igual para todos los lotes de una generación."""
+
+    slots: dict
+    config: dict
+    ruta_plantilla: str
+    max_causas: int
+    reanudar: bool
+    convertir_a_pdf: object = None    # función(ruta_docx) -> ruta_pdf, o None si no se pidió PDF
+
+    @property
+    def con_pdf(self):
+        return self.convertir_a_pdf is not None
+
+
+def _producir_lote(plan, encargo):
+    """Deja listo UN paquete: su Word y, si se pidió, su PDF. Al reanudar no
+    rehace el Word que ya está completo. Devuelve el motivo por el que el
+    PDF no salió, o None: si el PDF falla —por lo que sea— el Word igual
+    queda (las cartas no se pierden)."""
+    if not (encargo.reanudar and _es_docx(plan.archivo)):
+        _armar_lote(plan.patentes, plan.numero, plan.primera_carta, encargo.slots, encargo.config,
+                    encargo.ruta_plantilla, encargo.max_causas, plan.archivo)
+    if not encargo.con_pdf:
+        return None
+    try:
+        encargo.convertir_a_pdf(plan.archivo)
+    except Exception as exc:  # noqa: BLE001 — el PDF es un extra: nada de él debe botar el lote
+        _borrar(ruta_pdf_de(plan.archivo))     # tampoco sirve uno de una pasada anterior
+        return f"{type(exc).__name__}: {exc}"
+    return None
 
 
 def _lote_listo(nombre_archivo, con_pdf):
     """¿El paquete ya quedó completo en una pasada anterior de esta corrida?"""
     return _es_docx(nombre_archivo) and (not con_pdf or es_pdf(ruta_pdf_de(nombre_archivo)))
+
+
+def _borrar(ruta):
+    try:
+        os.unlink(ruta)
+    except OSError:
+        pass
 
 
 def _es_docx(ruta):
@@ -608,17 +631,16 @@ def _planificar_lotes(lotes, carpeta, base_lote):
 
 def _borrar_temporales(planes):
     """Un lote cortado a mitad de guardar deja su archivo temporal (nunca
-    uno a medias con el nombre definitivo): se borra."""
+    uno a medias con el nombre definitivo) y, si estaba convirtiendo, la
+    carpeta de trabajo de la conversión: se borran."""
     for plan in planes:
-        for definitivo in (plan.archivo, ruta_pdf_de(plan.archivo)):
-            try:
-                os.unlink(f"{definitivo}.tmp")
-            except OSError:
-                pass
+        _borrar(f"{plan.archivo}.tmp")
+        _borrar(f"{ruta_pdf_de(plan.archivo)}.tmp")
+        shutil.rmtree(carpeta_de_trabajo(plan.archivo), ignore_errors=True)
 
 
 def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, config, carpeta_salida=None,
-                                al_terminar_lote=None, ejecutor=None, reanudar=False):
+                                al_terminar_lote=None, ejecutor=None, reanudar=False, convertir_a_pdf=None):
     """Genera las cartas de citación en lotes correlativos .docx, todas
     dentro de una carpeta para este envío, junto con el Excel de
     seguimiento (Lote / N° de Carta / N° de Parte / Rol).
@@ -657,9 +679,10 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
     El detalle técnico de un lote que falla va al log del servidor, no a
     "errores" (que se muestra a quien generó las cartas).
 
-    `config["pdf"]`, si viene (un dict con las opciones de
-    motor.pdf.convertir_a_pdf, puede ser vacío), pide además el PDF de cada
-    lote.
+    `convertir_a_pdf`, si se pasa (una función que recibe la ruta del Word
+    y deja su PDF al lado, como motor.pdf.convertir_a_pdf), pide además el
+    PDF de cada lote. Si falla en un lote, ese lote queda sin PDF pero con
+    su Word.
 
     `al_terminar_lote(n)`, si se pasa, se llama después de cada lote (haya
     salido o no) con la cantidad de lotes ya terminados: así quien genera en
@@ -698,14 +721,11 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         carpeta = crear_carpeta_envio(f"{base_lote}_Envio")
     resultado["carpeta"] = carpeta
 
-    con_pdf = config.get("pdf") is not None
+    encargo = _Encargo(slots, config, ruta_plantilla, max_causas, reanudar, convertir_a_pdf)
+    con_pdf = encargo.con_pdf
     planes = _planificar_lotes(lotes, carpeta, base_lote)
     listos = {p.numero for p in planes if reanudar and _lote_listo(p.archivo, con_pdf)}
-    tareas = [
-        Tarea(p.numero, _producir_lote, (p.patentes, p.numero, p.primera_carta, slots, config, ruta_plantilla,
-                                         max_causas, p.archivo, reanudar))
-        for p in planes if p.numero not in listos
-    ]
+    tareas = [Tarea(p.numero, _producir_lote, (p, encargo)) for p in planes if p.numero not in listos]
     errores_por_lote = {}
     sin_pdf = set()
     terminados = len(listos)
@@ -721,8 +741,8 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
                     "generar y no se incluyó. Sus cupos de agenda se devolvieron; el detalle quedó en "
                     "el registro del servidor."
                 )
-            elif hecho.valor["error_pdf"]:
-                logger.error("El lote %s de %s quedó sin PDF: %s", plan.numero, base_lote, hecho.valor["error_pdf"])
+            elif hecho.valor:
+                logger.error("El lote %s de %s quedó sin PDF: %s", plan.numero, base_lote, hecho.valor)
                 sin_pdf.add(plan.numero)
             terminados += 1
             if al_terminar_lote:
@@ -739,6 +759,9 @@ def generar_cartas_certificadas(grupos_filtrados, base_lote, slots, limite_x, co
         if plan.numero in errores_por_lote:
             resultado["errores"].append(errores_por_lote[plan.numero])
             resultado["patentes_fallidas"].extend(pat for pat, _ in plan.patentes)
+            # Lo que haya alcanzado a escribir no se entrega: no debe quedar.
+            _borrar(plan.archivo)
+            _borrar(ruta_pdf_de(plan.archivo))
             continue
         seguimiento.extend(_seguimiento_de_lote(plan.patentes, plan.numero, plan.primera_carta, tipo_carta))
         resultado["archivos"].append(plan.archivo)

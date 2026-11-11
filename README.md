@@ -188,9 +188,11 @@ Controles al preparar:
   Word (50; «Cartas por paquete» parte ahí). Cada paquete se descarga como
   `.docx` o comprimido en `.zip`.
 - **También en PDF** (opciones adicionales, si el servidor tiene
-  LibreOffice): cada paquete queda además en `.pdf`, que se imprime pero
-  no se puede modificar (`motor/pdf.py`). Si la conversión falla, el Word
-  queda igual y se avisa.
+  LibreOffice): cada paquete queda además en `.pdf`, con permisos
+  restringidos: se abre e imprime sin clave y los lectores de PDF no dejan
+  editarlo (`motor/pdf.py`). Dificulta la edición casual; no es una firma
+  electrónica ni impide que alguien con otra herramienta lo reescriba. Si
+  la conversión falla, el Word queda igual y se avisa.
 
 Cómo se arman los paquetes lo decide un ejecutor
 (`motor/ejecucion_lotes.py`): en serie en el mismo proceso (pruebas, uso

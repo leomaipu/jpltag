@@ -56,3 +56,9 @@ docxtpl==0.20.2
 # entre cada una — equivalente a lo que antes hacía doc.add_page_break()
 # a mano. Licencia MIT.
 docxcompose==2.2.0
+# Las pruebas del PDF (motor/tests/test_pdf.py) leen con pypdf lo que
+# produjo LibreOffice: páginas, texto y permisos. Solo lo usan las
+# pruebas, pero la puerta de calidad del despliegue (JPLTAG_PRUEBAS) las
+# corre dentro de la imagen, que instala estrictamente este archivo.
+# Licencia BSD-3-Clause; sin dependencias en Python 3.13.
+pypdf==6.17.0

@@ -36,6 +36,13 @@ class PaquetesEnParaleloTest(_Base):
         with override_settings(JPLTAG_PAQUETES_EN_PARALELO=0):     # un valor absurdo no rompe: uno a la vez
             self.assertEqual(generacion._ejecutor_de_lotes().paralelos, 1)
 
+    def test_el_plazo_de_un_paquete_suma_el_de_la_conversion_si_hay_pdf(self):
+        from motor.pdf import TIEMPO_MAXIMO_CONVERSION
+
+        with override_settings(JPLTAG_SEGUNDOS_POR_PAQUETE=240):
+            self.assertEqual(generacion._ejecutor_de_lotes().tiempo_maximo, 240)
+            self.assertGreater(generacion._ejecutor_de_lotes(con_pdf=True).tiempo_maximo, 240 + TIEMPO_MAXIMO_CONVERSION)
+
     @override_settings(JPLTAG_PAQUETES_EN_PARALELO=3)
     def test_en_paralelo_sale_lo_mismo_que_de_a_uno(self):
         self.subir(PATENTES, n_cartas_paquete=1)
@@ -117,6 +124,14 @@ class OpcionPdfTest(_Base):
         with _con_pdf_ofrecido(False):
             self.assertNotContains(self.client.get("/subir/"), 'name="con_pdf"')
 
+    def test_esta_apagada_hasta_que_el_servidor_la_activa(self):
+        with mock.patch("procesos.generacion.conversion_disponible", return_value=True):
+            self.assertFalse(generacion.pdf_disponible())
+            with override_settings(JPLTAG_PDF_ACTIVO=True):
+                self.assertTrue(generacion.pdf_disponible())
+        with override_settings(JPLTAG_PDF_ACTIVO=True, JPLTAG_SOFFICE="soffice-que-no-existe"):
+            self.assertFalse(generacion.pdf_disponible())
+
     def test_sin_marcarla_no_se_generan_pdf(self):
         with _con_pdf_ofrecido(True):
             self.subir(("AAAA11",))
@@ -135,7 +150,8 @@ class OpcionPdfTest(_Base):
 
     @override_settings(JPLTAG_SOFFICE="soffice-que-no-existe")
     def test_si_la_conversion_falla_las_cartas_en_word_salen_y_se_avisa(self):
-        with _con_pdf_ofrecido(True), self.assertLogs("motor.plantilla", level="ERROR"):
+        with _con_pdf_ofrecido(True), mock.patch("procesos.generacion.pdf_disponible", return_value=True), \
+                self.assertLogs("motor.plantilla", level="ERROR"):
             resp = self.subir(("AAAA11", "BBBB22"), n_cartas_paquete=1, con_pdf="on")
         corrida = GeneracionCartas.objects.get()
         self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
@@ -144,6 +160,22 @@ class OpcionPdfTest(_Base):
         self.assertFalse(corrida.archivos.filter(tipo=ArchivoGenerado.Tipo.CARTAS_PDF).exists())
         self.assertContains(resp, "Paquetes sin PDF")
         self.assertContains(resp, "estos paquetes: 1, 2")
+
+    @override_settings(JPLTAG_GENERAR_EN_LA_PETICION=False)
+    def test_si_el_pdf_se_apaga_con_la_corrida_en_cola_sale_solo_en_word_y_se_avisa(self):
+        with _con_pdf_ofrecido(True):
+            self.subir(("AAAA11",), con_pdf="on")
+        convertidos = []
+        with override_settings(JPLTAG_PDF_ACTIVO=False), \
+                mock.patch("motor.pdf.convertir_a_pdf", side_effect=convertidos.append):
+            generacion.procesar_siguiente("w1")
+        corrida = GeneracionCartas.objects.get()
+        self.assertEqual(corrida.estado, GeneracionCartas.Estado.OK)
+        self.assertEqual(convertidos, [])
+        self.assertTrue(corrida.avisos["pdf_apagado"])
+        self.assertNotIn("lotes_sin_pdf", corrida.avisos)
+        self.assertContains(self.client.get(f"/resultado/{corrida.pk}/"), "salieron solo en Word")
+        self.assertEqual(list((Path(_TMP_SALIDAS) / corrida.carpeta_salida / "cartas").glob("*.pdf")), [])
 
     def test_la_eleccion_se_conserva_al_preguntar_por_patentes_repetidas(self):
         with _con_pdf_ofrecido(False):
@@ -156,7 +188,7 @@ class OpcionPdfTest(_Base):
             self.assertNotContains(resp, 'name="con_pdf" value="on"')
 
 
-@override_settings(JPLTAG_AGENDA_ACTIVA=False)
+@override_settings(JPLTAG_AGENDA_ACTIVA=False, JPLTAG_PDF_ACTIVO=True)
 class ConPdfDeVerdadTest(_Base):
     def setUp(self):
         if not HAY_LIBREOFFICE:
@@ -184,7 +216,8 @@ class ConPdfDeVerdadTest(_Base):
 
     def test_el_resultado_muestra_el_pdf_junto_al_word_y_se_descarga(self):
         corrida, resp = self._generar()
-        self.assertContains(resp, "el PDF no se puede modificar")
+        self.assertContains(resp, "los lectores de PDF no dejan editarlo")
+        self.assertNotContains(resp, "no se puede modificar")
         self.assertContains(resp, "jpl1_Cartas_Certificadas_Lote_1.docx")
         self.assertNotContains(resp, "jpl1_Cartas_Certificadas_Lote_1.pdf")   # no hay fila aparte
         self.assertEqual(resp.content.decode().count(">.pdf</a>"), 2)

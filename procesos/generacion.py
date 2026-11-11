@@ -67,7 +67,7 @@ from motor.fechas_en_letras import MESES
 from motor.lectura import detectar_duplicados, leer_nomina
 from motor.multas import cargar_tabla_multas
 from motor.ejecucion_lotes import EjecutorEnProcesos
-from motor.pdf import conversion_disponible
+from motor.pdf import TIEMPO_MAXIMO_CONVERSION, ConversorLibreOffice, conversion_disponible
 from motor.plantilla import PlantillaNoDisponible, generar_cartas_certificadas
 from motor.reportes import escribir_log_errores, exportar_duplicados
 from nucleo.models import BloqueHorario, Juzgado, TipoCarta
@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 # El worker anota un latido en la corrida al terminar cada paquete (menos
 # de 1 min con 50 cartas; un paquete se corta a los
-# motor.ejecucion_lotes.TIEMPO_MAXIMO_LOTE). Una corrida «en curso» sin latido por
+# settings.JPLTAG_SEGUNDOS_POR_PAQUETE). Una corrida «en curso» sin latido por
 # más que esto quedó huérfana —el worker murió a la mitad— y otro la retoma.
 CORRIDA_INTERRUMPIDA_TRAS = timedelta(minutes=7)
 
@@ -163,7 +163,7 @@ class SolicitudGeneracion:
     # primera fecha de `fechas_tanda`, las siguientes a la segunda, etc.
     fechas_tanda: list = field(default_factory=list)
     cartas_por_fecha: int = 0
-    # Además del Word, el PDF de cada paquete (no se puede modificar).
+    # Además del Word, el PDF de cada paquete (los lectores no dejan editarlo).
     con_pdf: bool = False
 
     def __post_init__(self):
@@ -715,7 +715,7 @@ def _leer_trabajo(carpeta_abs):
 
 class Detenido(Exception):
     """El worker recibió la orden de detenerse (SIGTERM): la corrida vuelve a
-    la cola y se retoma desde el último paquete terminado."""
+    la cola y después se arman solo los paquetes que falten."""
 
 
 class CorridaPerdida(Exception):
@@ -726,7 +726,7 @@ class CorridaPerdida(Exception):
 def tomar_siguiente(worker):
     """La corrida más antigua en cola, ya marcada EN_CURSO y a nombre de
     `worker`, o None. También retoma una «en curso» sin latido (su worker
-    murió): sigue desde el último paquete terminado, con los mismos cupos."""
+    murió): se arman solo los paquetes que falten, con los mismos cupos."""
     with transaction.atomic():
         corrida = (
             GeneracionCartas.objects.select_for_update(skip_locked=True)
@@ -801,19 +801,32 @@ def _config_motor(juzgado, trabajo, tipo_carta):
             tipo: juzgado.plantilla_propia(tipo).path
             for tipo in TipoCarta.values if juzgado.plantilla_propia(tipo)
         },
-        "pdf": {"binario": settings.JPLTAG_SOFFICE} if trabajo["con_pdf"] else None,
     }
 
 
 def pdf_disponible():
-    """¿Este servidor puede entregar las cartas también en PDF?"""
-    return conversion_disponible(settings.JPLTAG_SOFFICE)
+    """¿Este servidor entrega las cartas también en PDF? Hay que activarlo
+    (JPLTAG_PDF_ACTIVO: pide más memoria para el worker) y tener LibreOffice."""
+    return settings.JPLTAG_PDF_ACTIVO and conversion_disponible(settings.JPLTAG_SOFFICE)
 
 
-def _ejecutor_de_lotes():
+def _conversor_pdf(trabajo):
+    """El conversor a PDF de una corrida, o None si no se pidió —o si el
+    PDF se apagó en el servidor después de que la corrida entró a la cola
+    (por ejemplo, por memoria): en ese caso las cartas salen solo en Word."""
+    if not (trabajo["con_pdf"] and pdf_disponible()):
+        return None
+    return ConversorLibreOffice(binario=settings.JPLTAG_SOFFICE)
+
+
+def _ejecutor_de_lotes(con_pdf=False):
     """Cada paquete se arma en un proceso hijo; hasta
-    JPLTAG_PAQUETES_EN_PARALELO a la vez (ver config/settings.py)."""
-    return EjecutorEnProcesos(paralelos=settings.JPLTAG_PAQUETES_EN_PARALELO)
+    JPLTAG_PAQUETES_EN_PARALELO a la vez (ver config/settings.py). El plazo
+    de un paquete suma el de armar el Word y, si hay PDF, el de la
+    conversión: así un LibreOffice lento se corta solo (y el Word queda)
+    antes de que venza el paquete entero."""
+    plazo = settings.JPLTAG_SEGUNDOS_POR_PAQUETE + (TIEMPO_MAXIMO_CONVERSION + 15 if con_pdf else 0)
+    return EjecutorEnProcesos(paralelos=settings.JPLTAG_PAQUETES_EN_PARALELO, tiempo_maximo=plazo)
 
 
 def _cupos_de_patentes(slots, bloques_tomados, patentes):
@@ -887,11 +900,13 @@ def ejecutar(corrida, al_latir=None):
             if al_latir:
                 al_latir()
 
+        conversor_pdf = _conversor_pdf(trabajo)
         resultado = generar_cartas_certificadas(
             incluidos, juzgado.slug, trabajo["slots"], trabajo["n_cartas_paquete"],
             _config_motor(juzgado, trabajo, corrida.tipo_carta),
             carpeta_salida=str(carpeta_abs / "cartas"), al_terminar_lote=_latido,
-            ejecutor=_ejecutor_de_lotes(), reanudar=True,
+            ejecutor=_ejecutor_de_lotes(con_pdf=conversor_pdf is not None), reanudar=True,
+            conversor_pdf=conversor_pdf,
         )
     except Detenido:
         # Vuelve a la cola tal como está: el próximo worker arma solo los
@@ -923,6 +938,11 @@ def ejecutar(corrida, al_latir=None):
         avisos["errores_generando_lotes"] = resultado["errores"]
     if resultado["lotes_sin_pdf"]:
         avisos["lotes_sin_pdf"] = resultado["lotes_sin_pdf"]
+    if trabajo["con_pdf"] and conversor_pdf is None:
+        avisos["pdf_apagado"] = True
+        # Los PDF de una pasada anterior, cuando aún se convertía, no se entregan.
+        for sobrante in (carpeta_abs / "cartas").glob("*.pdf"):
+            sobrante.unlink(missing_ok=True)
     _cerrar(
         corrida, devolver=devueltos,
         archivos=[(r, ArchivoGenerado.Tipo.CARTAS) for r in resultado["archivos"]]

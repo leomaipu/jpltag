@@ -164,6 +164,8 @@ VALKEY_URL                   # la genera maipu-nueva-bd jpltag (caché y sesione
 GLITCHTIP_DSN                # opcional — vacío hasta crear el proyecto en GlitchTip
 JPLTAG_MAX_CARTAS_POR_ARCHIVO # opcional — tope de cartas por archivo Word (50)
 JPLTAG_PAQUETES_EN_PARALELO  # opcional — paquetes que el worker arma a la vez (1)
+JPLTAG_SEGUNDOS_POR_PAQUETE  # opcional — plazo para armar el Word de un paquete (120)
+JPLTAG_PDF_ACTIVO            # opcional — True: ofrece «También en PDF» (pide JPLTAG_WORKER_MEM=1500m o más)
 JPLTAG_SOFFICE               # opcional — programa de LibreOffice para el PDF («soffice»)
 JPLTAG_LOG_NIVEL             # opcional — INFO por defecto
 JPLTAG_AGENDA_ACTIVA         # opcional — False: las cartas no usan la agenda (todas «a coordinar»)
@@ -239,9 +241,12 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
   error arrancan dos no se pisan (cada corrida queda a nombre del que la
   tomó). Con `docker stop` (despliegue, apagado de la VM a las 23 h)
   termina el paquete en curso y devuelve la corrida a la cola; al volver
-  sigue desde el último paquete terminado. Si muere de golpe, otro worker
+  arma solo los paquetes que falten. Si muere de golpe, otro worker
   la retoma cuando su latido tiene más de 7 min. Un paquete que no termina
-  en 2 min se corta y queda como fallido, sin detener la cola. Una
+  en `JPLTAG_SEGUNDOS_POR_PAQUETE` (120 s; con PDF se suman 105 s para la
+  conversión) se corta y queda como fallido, sin detener la cola. Ese
+  plazo total debe ser menor que los 7 min del latido y que el tiempo que
+  el script le da al worker para detenerse. Una
   generación en cola se puede cancelar desde su pantalla (sus cupos
   vuelven a la agenda). Cada hora borra las nóminas guardadas que nadie
   confirmó (aviso de patentes repetidas) después de 12 h; la copia de
@@ -256,24 +261,40 @@ acepta estas opciones y no bloquea el arranque con un DSN de prueba.
 
   ```
   memoria del worker ≈ 0,3 GB + paralelos × (0,15 GB + 6 MB × cartas por archivo)
-                       (+ 0,35 GB por paquete en paralelo si se pide PDF)
+                       (+ 0,25 GB por paquete en paralelo si se pide PDF)
   ```
 
   Medido el 10-nov-2026 con la nómina real del 2do JPL (peor caso, las
   patentes con más causas): 450 MB por paquete de 50 cartas y 750 MB con
-  100. Ejemplo para un servidor de 12 hilos y 32 GB:
-  `JPLTAG_PAQUETES_EN_PARALELO=6`, `JPLTAG_WORKER_CPUS=6`,
-  `JPLTAG_WORKER_MEM=8g`, `JPLTAG_MAX_CARTAS_POR_ARCHIVO=100`. Al detener
-  el worker (`docker stop`), los paquetes que estaban a medio armar se
-  cortan y se rehacen al volver; los terminados no se repiten.
-- **PDF** («También en PDF» al generar): la imagen trae LibreOffice
+  100; LibreOffice suma unos 200 MB por conversión. Ejemplo para un
+  servidor de 12 hilos y 32 GB: `JPLTAG_PAQUETES_EN_PARALELO=6`,
+  `JPLTAG_WORKER_CPUS=6`, `JPLTAG_WORKER_MEM=8g`,
+  `JPLTAG_MAX_CARTAS_POR_ARCHIVO=100` y, por los paquetes de 100,
+  `JPLTAG_SEGUNDOS_POR_PAQUETE=240`. Al detener el worker (`docker stop`)
+  termina el paquete que primero acabe; los demás que estaban a medio
+  armar se cortan y se rehacen al volver, y los terminados no se repiten.
+- **PDF** («También en PDF» al generar; apagado hasta poner
+  `JPLTAG_PDF_ACTIVO=True`): la imagen trae LibreOffice
   Writer sin interfaz gráfica y las fuentes de reemplazo de las plantillas
   (Liberation, Caladea, Carlito). Cada paquete se convierte en el mismo
-  proceso hijo que lo armó, con un perfil de LibreOffice desechable en el
-  directorio temporal (`TMPDIR`), y queda junto al Word. El PDF se abre e
-  imprime sin clave y los lectores no dejan modificarlo (permisos
-  restringidos con una clave aleatoria que no se guarda); no es una firma
-  electrónica. La generación tarda cerca del doble. Si la conversión de
+  proceso hijo que lo armó, con un perfil de LibreOffice desechable en
+  una carpeta de trabajo junto al Word (se borra al terminar), y queda
+  junto al Word. El PDF se abre e imprime sin clave y los lectores no
+  ofrecen modificarlo (permisos restringidos con una clave aleatoria que
+  no se guarda). Es una barrera contra la edición casual: quien use una
+  herramienta que ignore los permisos puede reescribirlo, y no es una
+  firma electrónica. La generación tarda cerca del doble y usa más
+  memoria: **con PDF, el worker necesita 1,5 GB aun con un solo paquete a
+  la vez** (`JPLTAG_WORKER_MEM=1500m`; con 1 GB queda sin margen: medido
+  605 MB del paquete y LibreOffice, más el propio worker). Además, con
+  PDF el plazo de un paquete es de hasta 225 s (120 + 105): el worker debe
+  tener **al menos 240 s para detenerse** (`stop_grace_period` en
+  `13-app-jpltag.sh`; estaba en 150 s) y su healthcheck debe tolerar ese
+  tiempo sin latido. Si el sistema cierra un proceso por memoria mientras
+  convierte, ese paquete queda sin PDF pero con su Word. Conviene que el
+  contenedor del worker use `init: true`: así se recogen los procesos de
+  LibreOffice que se corten. Si el PDF se apaga con corridas en cola que
+  lo pidieron, esas salen solo en Word y la pantalla lo avisa. Si la conversión de
   un paquete falla, sus cartas en Word quedan igual y la pantalla lo
   avisa («Paquetes sin PDF»). Una plantilla propia de un juzgado con una
   fuente que la imagen no trae puede cambiar los saltos de línea en el

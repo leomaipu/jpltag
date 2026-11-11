@@ -3,9 +3,11 @@
 import os
 import stat
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 from motor import pdf
 from motor.plantilla import generar_cartas_certificadas
@@ -52,6 +54,38 @@ class SinLibreOfficeTest(unittest.TestCase):
             with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
 
+    def test_al_cortar_una_conversion_colgada_no_queda_ningun_proceso_suyo(self):
+        """LibreOffice se lanza a través de un proceso intermedio: hay que
+        cortar también al que queda detrás."""
+        with tempfile.TemporaryDirectory() as carpeta:
+            docx = _un_paquete(carpeta)
+            ruta_pid = Path(carpeta, "nieto.pid")
+            falso = _programa_falso(carpeta, f"sleep 60 &\necho $! > {ruta_pid}\nwait")
+            with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
+                pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
+            nieto = int(ruta_pid.read_text())
+            limite = time.monotonic() + 5
+            while Path(f"/proc/{nieto}").exists() and time.monotonic() < limite:
+                time.sleep(0.05)
+            self.assertFalse(Path(f"/proc/{nieto}").exists(), "quedó vivo el proceso que convertía")
+            self.assertFalse(Path(pdf.carpeta_de_trabajo(docx)).exists())
+
+    def test_si_falla_no_queda_un_pdf_de_una_conversion_anterior(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            docx = _un_paquete(carpeta)
+            Path(pdf.ruta_pdf_de(docx)).write_bytes(b"%PDF-1.7 de antes\n%%EOF")
+            with self.assertRaises(pdf.ErrorPdf):
+                pdf.convertir_a_pdf(docx, binario=_programa_falso(carpeta, "exit 1"))
+            self.assertFalse(Path(pdf.ruta_pdf_de(docx)).exists())
+
+    def test_un_programa_que_no_se_puede_ejecutar_es_un_error_de_pdf(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            docx = _un_paquete(carpeta)
+            no_ejecutable = Path(carpeta, "soffice-sin-permiso")
+            no_ejecutable.write_text("#!/bin/sh\n")
+            with self.assertRaisesRegex(pdf.ErrorPdf, "no se pudo escribir el PDF|no está instalado"):
+                pdf.convertir_a_pdf(docx, binario=str(no_ejecutable))
+
     def test_un_pdf_a_medio_escribir_no_cuenta_como_pdf(self):
         with tempfile.TemporaryDirectory() as carpeta:
             truncado = Path(carpeta, "a.pdf")
@@ -81,7 +115,9 @@ class ConLibreOfficeTest(unittest.TestCase):
                 self.assertIn("MARIA PRUEBA SINTETICA", texto)
             self.assertEqual([p.name for p in Path(carpeta).glob("*.tmp")], [])
 
-    def test_el_pdf_se_abre_e_imprime_sin_clave_pero_no_se_puede_modificar(self):
+    def test_el_pdf_se_abre_e_imprime_sin_clave_y_declara_que_no_admite_cambios(self):
+        """Lo que se comprueba son los permisos que el PDF declara (los que
+        respetan los lectores); no es una protección contra quien los ignore."""
         from pypdf import PdfReader
         from pypdf.constants import UserAccessPermissions as Permiso
 
@@ -110,21 +146,17 @@ class ConLibreOfficeTest(unittest.TestCase):
                 rutas = list(hilos.map(pdf.convertir_a_pdf, documentos))
             self.assertTrue(all(pdf.es_pdf(r) for r in rutas))
 
-    def test_no_deja_nada_fuera_de_la_carpeta_del_paquete(self):
+    def test_no_deja_nada_en_el_directorio_temporal_ni_junto_al_word(self):
         with tempfile.TemporaryDirectory() as carpeta, tempfile.TemporaryDirectory() as temporales:
             docx = _un_paquete(carpeta)
-            anterior = os.environ.get("TMPDIR")
-            os.environ["TMPDIR"] = temporales
-            tempfile.tempdir = None
-            try:
-                pdf.convertir_a_pdf(docx)
-            finally:
-                if anterior is None:
-                    os.environ.pop("TMPDIR", None)
-                else:
-                    os.environ["TMPDIR"] = anterior
+            with mock.patch.dict(os.environ, {"TMPDIR": temporales}):
                 tempfile.tempdir = None
-            self.assertEqual(os.listdir(temporales), [])     # el perfil desechable se borró
+                try:
+                    pdf.convertir_a_pdf(docx)
+                finally:
+                    tempfile.tempdir = None
+            self.assertEqual(os.listdir(temporales), [])
+            self.assertEqual(sorted(p.suffix for p in Path(carpeta).iterdir()), [".docx", ".pdf", ".xlsx"])
 
     def test_las_cartas_de_los_tres_juzgados_y_tipos_caben_igual_en_pdf(self):
         """El PDF no debe partir una carta en dos hojas: mismas páginas que cartas."""
@@ -136,8 +168,8 @@ class ConLibreOfficeTest(unittest.TestCase):
                     grupos = {f"AAAA{i:02d}": _info(tuple([1] * 12)) for i in range(3)}
                     slots = {p: ("15/11/2026", "09:30") for p in grupos}
                     resultado = generar_cartas_certificadas(
-                        grupos, f"jpl{n}", slots, 0, _config(n, tipo, max_causas_por_pagina=12, pdf={}),
-                        carpeta_salida=carpeta,
+                        grupos, f"jpl{n}", slots, 0, _config(n, tipo, max_causas_por_pagina=12),
+                        carpeta_salida=carpeta, conversor_pdf=pdf.ConversorLibreOffice(),
                     )
                     self.assertEqual(resultado["lotes_sin_pdf"], [])
                     (ruta,) = resultado["archivos_pdf"]

@@ -68,6 +68,13 @@
 </section>
 {% endif %}
 
+{% if generacion.avisos.pdf_apagado %}
+<section class="bloque" role="alert">
+  <h2 class="seccion__titulo"><span class="estado estado--aviso">Sin PDF</span></h2>
+  <p class="texto-suave">Se pidió «También en PDF», pero el servidor no tenía el PDF disponible cuando se armaron las cartas: salieron solo en Word.</p>
+</section>
+{% endif %}
+
 {% if generacion.avisos.lotes_sin_pdf %}
 <section class="bloque" role="alert">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Paquetes sin PDF</span></h2>
@@ -118,7 +125,7 @@
 
 {% if archivos %}
 <section class="bloque" aria-labelledby="arch-titulo">
-  <h2 id="arch-titulo" class="seccion__titulo">Archivos<small>Los paquetes de cartas son los que se imprimen{% if tiene_pdf %}: el PDF no se puede modificar{% endif %}.</small></h2>
+  <h2 id="arch-titulo" class="seccion__titulo">Archivos<small>Los paquetes de cartas son los que se imprimen{% if tiene_pdf %}. Imprime desde el PDF: los lectores de PDF no dejan editarlo (no es una firma electrónica){% endif %}.</small></h2>
   <ul class="lista">
     {% for a in archivos %}
     <li class="archivo">
@@ -128,9 +135,9 @@
         <span class="archivo__tipo">{{ a.get_tipo_display }}</span>
       </span>
       <span class="archivo__acciones">
-        {% if a.tipo == 'CARTAS' %}<a class="btn btn--primario btn--chico" href="{% url 'procesos:descargar_zip' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>.zip</a>{% endif %}
+        {% if a.pdf %}<a class="btn btn--primario btn--chico" href="{% url 'procesos:descargar' a.pdf.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>.pdf</a>{% endif %}
+        {% if a.tipo == 'CARTAS' %}<a class="btn {% if not a.pdf %}btn--primario {% endif %}btn--chico" href="{% url 'procesos:descargar_zip' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>.zip</a>{% endif %}
         <a class="btn btn--chico" href="{% url 'procesos:descargar' a.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>{% if a.tipo == 'CARTAS' %}.docx{% else %}Descargar{% endif %}</a>
-        {% if a.pdf %}<a class="btn btn--chico" href="{% url 'procesos:descargar' a.pdf.pk %}"><svg class="ico" aria-hidden="true"><use href="{% static 'procesos/img/icons.svg' %}#descargar"/></svg>.pdf</a>{% endif %}
       </span>
     </li>
     {% endfor %}

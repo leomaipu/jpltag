@@ -2,10 +2,12 @@
 Conversión de un paquete de cartas Word a PDF con LibreOffice.
 
 El PDF sale con permisos restringidos: se puede abrir e imprimir sin clave,
-pero los lectores de PDF no permiten modificarlo. La clave de permisos es
+y los lectores de PDF no ofrecen modificarlo. La clave de permisos es
 aleatoria y no se guarda: nadie necesita levantar la restricción (las
 cartas se vuelven a generar desde la nómina). Es una barrera contra la
-edición casual, no una firma electrónica: no prueba quién emitió la carta.
+edición casual, NO una protección real: quien use una herramienta que
+ignore los permisos puede reescribir el archivo, y no hay firma
+electrónica que pruebe quién emitió la carta ni que no cambió.
 
 Este módulo no sabe nada de cartas ni de Django: recibe la ruta de un
 .docx y deja el .pdf a su lado.
@@ -15,8 +17,8 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
-import tempfile
 from pathlib import Path
 
 BINARIO_DEFECTO = "soffice"
@@ -61,36 +63,137 @@ def ruta_pdf_de(ruta_docx):
     return str(Path(ruta_docx).with_suffix(".pdf"))
 
 
+def carpeta_de_trabajo(ruta_docx):
+    """Dónde trabaja la conversión de ese Word (se borra al terminar)."""
+    return f"{ruta_pdf_de(ruta_docx)}-trabajo"
+
+
+def _descendientes(pid):
+    """Los procesos que cuelgan de `pid` (hijos, nietos…), leídos de /proc.
+    LibreOffice se lanza a través de un proceso intermedio: al cortar una
+    conversión colgada hay que cortar también al que de verdad convierte."""
+    hijos_de = {}
+    for entrada in os.listdir("/proc") if os.path.isdir("/proc") else ():
+        if not entrada.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entrada}/stat", encoding="utf-8", errors="replace") as f:
+                padre = int(f.read().rsplit(") ", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):
+            continue
+        hijos_de.setdefault(padre, []).append(int(entrada))
+    encontrados, por_revisar = [], [pid]
+    while por_revisar:
+        for hijo in hijos_de.get(por_revisar.pop(), ()):
+            encontrados.append(hijo)
+            por_revisar.append(hijo)
+    return encontrados
+
+
+def _cortar_con_su_descendencia(proceso):
+    # La lista se arma ANTES de cortar: después, los nietos quedan sin padre
+    # y ya no se pueden encontrar.
+    for pid in [*_descendientes(proceso.pid), proceso.pid]:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    try:
+        proceso.communicate(timeout=5)      # recoge al proceso y cierra sus tuberías
+    except subprocess.TimeoutExpired:
+        for tuberia in (proceso.stdout, proceso.stderr):
+            tuberia.close()
+        proceso.wait()
+
+
 def convertir_a_pdf(ruta_docx, binario=BINARIO_DEFECTO, tiempo_maximo=TIEMPO_MAXIMO_CONVERSION):
     """Deja junto a `ruta_docx` su versión PDF y devuelve la ruta. Lanza
-    ErrorPdf si no se pudo.
+    ErrorPdf si no se pudo; en ese caso no queda ningún PDF con ese nombre
+    (tampoco uno anterior).
 
-    Cada conversión usa un perfil de LibreOffice propio y desechable: así
-    varias pueden correr a la vez sin estorbarse y no queda nada escrito
-    fuera de la carpeta temporal."""
+    Cada conversión usa una carpeta de trabajo propia y desechable, junto
+    al Word (`<nombre>.pdf-trabajo`), con el perfil de LibreOffice y sus
+    temporales: así varias conversiones pueden correr a la vez sin
+    estorbarse y, si el proceso muere a la mitad, lo que quede está en una
+    carpeta de nombre conocido (carpeta_de_trabajo) que se puede borrar."""
     destino = ruta_pdf_de(ruta_docx)
-    with tempfile.TemporaryDirectory(prefix="jpltag-pdf-") as tmp:
-        perfil = Path(tmp, "perfil")
-        salida = Path(tmp, "salida")
-        salida.mkdir()
+    trabajo = Path(carpeta_de_trabajo(ruta_docx))
+    try:
+        shutil.rmtree(trabajo, ignore_errors=True)
+        salida = trabajo / "salida"
+        salida.mkdir(parents=True)
         orden = [
             binario, "--headless", "--norestore", "--nolockcheck", "--nodefault", "--nofirststartwizard",
-            f"-env:UserInstallation={perfil.as_uri()}",
+            f"-env:UserInstallation={(trabajo / 'perfil').resolve().as_uri()}",
             "--convert-to", _filtro_de_exportacion(), "--outdir", str(salida), str(ruta_docx),
         ]
+        entorno = {**os.environ, "TMPDIR": str(trabajo), "TMP": str(trabajo), "TEMP": str(trabajo)}
         try:
-            hecho = subprocess.run(orden, capture_output=True, timeout=tiempo_maximo, check=False)
+            proceso = subprocess.Popen(orden, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=entorno)
         except FileNotFoundError:
             raise ErrorPdf(f"LibreOffice («{binario}») no está instalado en el servidor") from None
+        try:
+            _, errores = proceso.communicate(timeout=tiempo_maximo)
         except subprocess.TimeoutExpired:
+            _cortar_con_su_descendencia(proceso)
             raise ErrorPdf(f"LibreOffice no terminó en {tiempo_maximo} s") from None
         generado = salida / f"{Path(ruta_docx).stem}.pdf"
         if not es_pdf(generado):
-            detalle = (hecho.stderr or hecho.stdout or b"").decode("utf-8", "replace").strip()[-300:]
-            raise ErrorPdf(f"LibreOffice no produjo el PDF (código {hecho.returncode}): {detalle}")
+            detalle = (errores or b"").decode("utf-8", "replace").strip()[-300:]
+            raise ErrorPdf(f"LibreOffice no produjo el PDF (código {proceso.returncode}): {detalle}")
         # Se copia aparte y se renombra al final: nunca queda un PDF
         # truncado con el nombre definitivo.
         temporal = f"{destino}.tmp"
         shutil.copyfile(generado, temporal)
         os.replace(temporal, destino)
+    except ErrorPdf:
+        _quitar(destino)
+        raise
+    except OSError as exc:
+        _quitar(destino)
+        raise ErrorPdf(f"no se pudo escribir el PDF: {exc}") from exc
+    finally:
+        shutil.rmtree(trabajo, ignore_errors=True)
+        _quitar(f"{destino}.tmp")
     return destino
+
+
+def _quitar(ruta):
+    try:
+        os.unlink(ruta)
+    except OSError:
+        pass
+
+
+class ConversorLibreOffice:
+    """El conversor a PDF tal como lo usa quien genera las cartas
+    (motor.plantilla), que solo conoce estas cinco operaciones:
+
+        convertir(ruta_docx)   deja el PDF y devuelve su ruta (o lanza)
+        ruta_de(ruta_docx)     dónde queda el PDF de ese Word
+        listo(ruta_docx)       ¿ese PDF ya está completo?
+        limpiar(ruta_docx)     borra lo que una conversión cortada dejó a medias
+        descartar(ruta_docx)   quita el PDF de ese Word
+
+    Otro conversor sirve igual si ofrece las mismas cinco."""
+
+    def __init__(self, binario=BINARIO_DEFECTO, tiempo_maximo=TIEMPO_MAXIMO_CONVERSION):
+        self.binario = binario
+        self.tiempo_maximo = tiempo_maximo
+
+    def convertir(self, ruta_docx):
+        return convertir_a_pdf(ruta_docx, binario=self.binario, tiempo_maximo=self.tiempo_maximo)
+
+    def ruta_de(self, ruta_docx):
+        return ruta_pdf_de(ruta_docx)
+
+    def listo(self, ruta_docx):
+        return es_pdf(ruta_pdf_de(ruta_docx))
+
+    def limpiar(self, ruta_docx):
+        _quitar(f"{ruta_pdf_de(ruta_docx)}.tmp")
+        shutil.rmtree(carpeta_de_trabajo(ruta_docx), ignore_errors=True)
+
+    def descartar(self, ruta_docx):
+        """Quita el PDF de ese Word (p. ej. uno de una pasada anterior que ya no vale)."""
+        _quitar(ruta_pdf_de(ruta_docx))

@@ -82,6 +82,22 @@ def _hijos_de_este_proceso():
     return hijos
 
 
+def _hijos_del_ejecutor_desde(antes):
+    """Hijos nuevos desde `antes` que son copias de este proceso (los que crea
+    el ejecutor con fork). Cuando las pruebas corren como el primer proceso
+    del contenedor (docker run sin --init), este proceso adopta y nunca
+    recoge a los huérfanos de otras pruebas (gpg de LibreOffice, sleep…):
+    esos no son del ejecutor y no cuentan."""
+    def comando(pid):
+        try:
+            return Path(f"/proc/{pid}/comm").read_text().strip()
+        except OSError:
+            return None
+
+    propio = comando(os.getpid())
+    return [pid for pid in _hijos_de_este_proceso() if pid not in antes and comando(pid) == propio]
+
+
 def _lanzar_nieto_y_dormir(ruta_pid):
     nieto = subprocess.Popen(["sleep", "60"])
     Path(ruta_pid).write_text(str(nieto.pid))
@@ -213,8 +229,9 @@ class EjecutorEnProcesosTest(unittest.TestCase):
 
     def test_no_deja_procesos_hijos_ni_zombis_ni_descriptores_abiertos(self):
         descriptores = len(os.listdir("/proc/self/fd"))
+        antes = set(_hijos_de_este_proceso())
         list(EjecutorEnProcesos(paralelos=3).ejecutar(Tarea(i, _doble, (i,)) for i in range(30)))
-        self.assertEqual(_hijos_de_este_proceso(), [])
+        self.assertEqual(_hijos_del_ejecutor_desde(antes), [])
         self.assertEqual(len(os.listdir("/proc/self/fd")), descriptores)
 
     def test_una_tarea_que_ya_termino_no_se_da_por_vencida_aunque_el_consumidor_se_demore(self):
@@ -232,6 +249,7 @@ class EjecutorEnProcesosTest(unittest.TestCase):
         from unittest import mock
 
         inicio = time.monotonic()
+        antes = set(_hijos_de_este_proceso())
         with mock.patch.object(ejecucion_lotes, "_GRACIA_AL_TERMINAR", 0.5):
             resultados = {r.clave: r for r in EjecutorEnProcesos(paralelos=2, tiempo_maximo=20).ejecutar(
                 [Tarea("no sale", _entregar_y_quedarse, ()), Tarea("ok", _doble, (4,))]
@@ -239,7 +257,7 @@ class EjecutorEnProcesosTest(unittest.TestCase):
         self.assertLess(time.monotonic() - inicio, 10)
         self.assertEqual(resultados["ok"].valor, 8)
         self.assertIsInstance(resultados["no sale"].error, TareaInterrumpida)
-        self.assertEqual(_hijos_de_este_proceso(), [])
+        self.assertEqual(_hijos_del_ejecutor_desde(antes), [])
 
     def test_si_el_hijo_muerto_ya_fue_recogido_no_se_corta_ningun_grupo(self):
         """Su identificador pudo pasar a otro proceso: cortar «su» grupo sería cortar a otro."""

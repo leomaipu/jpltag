@@ -1,6 +1,7 @@
 """Conversión de un paquete de cartas a PDF (motor.pdf)."""
 
 import os
+import subprocess
 import tempfile
 import time
 import unittest
@@ -10,6 +11,7 @@ from unittest import mock
 
 from motor import pdf
 from motor.plantilla import generar_cartas_certificadas
+from motor.tests import programas_falsos
 from motor.tests.programas_falsos import programa_falso
 from motor.tests.test_plantillas_tipos import _config, _info
 
@@ -24,26 +26,17 @@ def _un_paquete(carpeta, cartas=3, causas=2):
 
 
 class ProgramasFalsosTest(unittest.TestCase):
-    def test_en_una_carpeta_que_no_permite_ejecutar_la_prueba_se_salta_con_el_motivo(self):
-        from motor.tests import programas_falsos
-
+    def test_en_una_carpeta_montada_con_noexec_la_prueba_se_salta_con_el_motivo(self):
         with tempfile.TemporaryDirectory() as carpeta, \
-                mock.patch.object(programas_falsos, "se_puede_ejecutar_en", return_value=False):
+                mock.patch.object(programas_falsos, "montada_sin_ejecucion", return_value=True):
             with self.assertRaisesRegex(unittest.SkipTest, "noexec"):
                 programa_falso(carpeta, "exit 0")
             self.assertEqual(os.listdir(carpeta), [])
 
     def test_en_una_carpeta_normal_entrega_un_programa_que_corre(self):
-        import subprocess
-
-        from motor.tests.programas_falsos import se_puede_ejecutar_en
-
         with tempfile.TemporaryDirectory() as carpeta:
-            if not se_puede_ejecutar_en(carpeta):
-                self.skipTest("este directorio temporal no permite ejecutar programas")
-            ruta = programa_falso(carpeta, "exit 7")
+            ruta = programa_falso(carpeta, "exit 7")      # se salta solo si /tmp es noexec
             self.assertEqual(subprocess.run([ruta], check=False).returncode, 7)
-            self.assertEqual(os.listdir(carpeta), ["soffice-falso"])     # la sonda no queda
 
 
 class SinLibreOfficeTest(unittest.TestCase):
@@ -99,7 +92,7 @@ class SinLibreOfficeTest(unittest.TestCase):
             docx = _un_paquete(carpeta)
             no_ejecutable = Path(carpeta, "soffice-sin-permiso")
             no_ejecutable.write_text("#!/bin/sh\n")
-            with self.assertRaisesRegex(pdf.ErrorPdf, "no se pudo escribir el PDF|no está instalado"):
+            with self.assertRaisesRegex(pdf.ErrorPdf, "no se pudo ejecutar LibreOffice"):
                 pdf.convertir_a_pdf(docx, binario=str(no_ejecutable))
 
     def test_un_pdf_a_medio_escribir_no_cuenta_como_pdf(self):

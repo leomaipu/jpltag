@@ -1,7 +1,6 @@
 """Conversión de un paquete de cartas a PDF (motor.pdf)."""
 
 import os
-import stat
 import tempfile
 import time
 import unittest
@@ -11,6 +10,7 @@ from unittest import mock
 
 from motor import pdf
 from motor.plantilla import generar_cartas_certificadas
+from motor.tests.programas_falsos import programa_falso
 from motor.tests.test_plantillas_tipos import _config, _info
 
 HAY_LIBREOFFICE = pdf.conversion_disponible()
@@ -23,11 +23,27 @@ def _un_paquete(carpeta, cartas=3, causas=2):
     return resultado["archivos"][0]
 
 
-def _programa_falso(carpeta, cuerpo):
-    ruta = Path(carpeta, "soffice-falso")
-    ruta.write_text("#!/bin/sh\n" + cuerpo + "\n")
-    ruta.chmod(ruta.stat().st_mode | stat.S_IEXEC)
-    return str(ruta)
+class ProgramasFalsosTest(unittest.TestCase):
+    def test_en_una_carpeta_que_no_permite_ejecutar_la_prueba_se_salta_con_el_motivo(self):
+        from motor.tests import programas_falsos
+
+        with tempfile.TemporaryDirectory() as carpeta, \
+                mock.patch.object(programas_falsos, "se_puede_ejecutar_en", return_value=False):
+            with self.assertRaisesRegex(unittest.SkipTest, "noexec"):
+                programa_falso(carpeta, "exit 0")
+            self.assertEqual(os.listdir(carpeta), [])
+
+    def test_en_una_carpeta_normal_entrega_un_programa_que_corre(self):
+        import subprocess
+
+        from motor.tests.programas_falsos import se_puede_ejecutar_en
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            if not se_puede_ejecutar_en(carpeta):
+                self.skipTest("este directorio temporal no permite ejecutar programas")
+            ruta = programa_falso(carpeta, "exit 7")
+            self.assertEqual(subprocess.run([ruta], check=False).returncode, 7)
+            self.assertEqual(os.listdir(carpeta), ["soffice-falso"])     # la sonda no queda
 
 
 class SinLibreOfficeTest(unittest.TestCase):
@@ -42,7 +58,7 @@ class SinLibreOfficeTest(unittest.TestCase):
     def test_si_el_programa_falla_no_queda_ningun_pdf_ni_temporal(self):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
-            falso = _programa_falso(carpeta, "echo 'no pude' >&2; exit 3")
+            falso = programa_falso(carpeta, "echo 'no pude' >&2; exit 3")
             with self.assertRaisesRegex(pdf.ErrorPdf, r"código 3.*no pude"):
                 pdf.convertir_a_pdf(docx, binario=falso)
             self.assertEqual([p.name for p in Path(carpeta).glob("*.pdf*")], [])
@@ -50,7 +66,7 @@ class SinLibreOfficeTest(unittest.TestCase):
     def test_si_el_programa_no_termina_se_corta(self):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
-            falso = _programa_falso(carpeta, "sleep 30")
+            falso = programa_falso(carpeta, "sleep 30")
             with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
 
@@ -60,7 +76,7 @@ class SinLibreOfficeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
             ruta_pid = Path(carpeta, "nieto.pid")
-            falso = _programa_falso(carpeta, f"sleep 60 &\necho $! > {ruta_pid}\nwait")
+            falso = programa_falso(carpeta, f"sleep 60 &\necho $! > {ruta_pid}\nwait")
             with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
             nieto = int(ruta_pid.read_text())
@@ -75,7 +91,7 @@ class SinLibreOfficeTest(unittest.TestCase):
             docx = _un_paquete(carpeta)
             Path(pdf.ruta_pdf_de(docx)).write_bytes(b"%PDF-1.7 de antes\n%%EOF")
             with self.assertRaises(pdf.ErrorPdf):
-                pdf.convertir_a_pdf(docx, binario=_programa_falso(carpeta, "exit 1"))
+                pdf.convertir_a_pdf(docx, binario=programa_falso(carpeta, "exit 1"))
             self.assertFalse(Path(pdf.ruta_pdf_de(docx)).exists())
 
     def test_un_programa_que_no_se_puede_ejecutar_es_un_error_de_pdf(self):

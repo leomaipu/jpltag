@@ -82,20 +82,12 @@ def _hijos_de_este_proceso():
     return hijos
 
 
-def _hijos_del_ejecutor_desde(antes):
-    """Hijos nuevos desde `antes` que son copias de este proceso (los que crea
-    el ejecutor con fork). Cuando las pruebas corren como el primer proceso
-    del contenedor (docker run sin --init), este proceso adopta y nunca
-    recoge a los huérfanos de otras pruebas (gpg de LibreOffice, sleep…):
-    esos no son del ejecutor y no cuentan."""
-    def comando(pid):
-        try:
-            return Path(f"/proc/{pid}/comm").read_text().strip()
-        except OSError:
-            return None
-
-    propio = comando(os.getpid())
-    return [pid for pid in _hijos_de_este_proceso() if pid not in antes and comando(pid) == propio]
+def _hijos_nuevos_desde(antes):
+    """Hijos que aparecieron después de `antes`. Se compara contra una línea
+    base porque, cuando las pruebas corren como el primer proceso del
+    contenedor (docker run sin --init), este proceso adopta y nunca recoge
+    a los huérfanos de pruebas anteriores (gpg de LibreOffice, sleep…)."""
+    return [pid for pid in _hijos_de_este_proceso() if pid not in antes]
 
 
 def _lanzar_nieto_y_dormir(ruta_pid):
@@ -231,7 +223,7 @@ class EjecutorEnProcesosTest(unittest.TestCase):
         descriptores = len(os.listdir("/proc/self/fd"))
         antes = set(_hijos_de_este_proceso())
         list(EjecutorEnProcesos(paralelos=3).ejecutar(Tarea(i, _doble, (i,)) for i in range(30)))
-        self.assertEqual(_hijos_del_ejecutor_desde(antes), [])
+        self.assertEqual(_hijos_nuevos_desde(antes), [])
         self.assertEqual(len(os.listdir("/proc/self/fd")), descriptores)
 
     def test_una_tarea_que_ya_termino_no_se_da_por_vencida_aunque_el_consumidor_se_demore(self):
@@ -257,7 +249,7 @@ class EjecutorEnProcesosTest(unittest.TestCase):
         self.assertLess(time.monotonic() - inicio, 10)
         self.assertEqual(resultados["ok"].valor, 8)
         self.assertIsInstance(resultados["no sale"].error, TareaInterrumpida)
-        self.assertEqual(_hijos_del_ejecutor_desde(antes), [])
+        self.assertEqual(_hijos_nuevos_desde(antes), [])
 
     def test_si_el_hijo_muerto_ya_fue_recogido_no_se_corta_ningun_grupo(self):
         """Su identificador pudo pasar a otro proceso: cortar «su» grupo sería cortar a otro."""

@@ -25,6 +25,18 @@ def _un_paquete(carpeta, cartas=3, causas=2):
     return resultado["archivos"][0]
 
 
+def _sigue_vivo(pid):
+    """¿El proceso existe y no es un zombi? Un proceso que murió sin que su
+    padre lo recoja queda en /proc en estado Z. Pasa cuando las pruebas
+    corren como el primer proceso del contenedor (docker run sin --init):
+    los huérfanos pasan a ser hijos de este proceso, que nunca los recoge."""
+    try:
+        estado = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+    except (OSError, IndexError):
+        return False
+    return estado != "Z"
+
+
 class ProgramasFalsosTest(unittest.TestCase):
     def test_en_una_carpeta_montada_con_noexec_la_prueba_se_salta_con_el_motivo(self):
         with tempfile.TemporaryDirectory() as carpeta, \
@@ -74,9 +86,9 @@ class SinLibreOfficeTest(unittest.TestCase):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
             nieto = int(ruta_pid.read_text())
             limite = time.monotonic() + 5
-            while Path(f"/proc/{nieto}").exists() and time.monotonic() < limite:
+            while _sigue_vivo(nieto) and time.monotonic() < limite:
                 time.sleep(0.05)
-            self.assertFalse(Path(f"/proc/{nieto}").exists(), "quedó vivo el proceso que convertía")
+            self.assertFalse(_sigue_vivo(nieto), "quedó vivo el proceso que convertía")
             self.assertFalse(Path(pdf.carpeta_de_trabajo(docx)).exists())
 
     def test_si_falla_no_queda_un_pdf_de_una_conversion_anterior(self):

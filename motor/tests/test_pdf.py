@@ -1,7 +1,7 @@
 """Conversión de un paquete de cartas a PDF (motor.pdf)."""
 
 import os
-import stat
+import subprocess
 import tempfile
 import time
 import unittest
@@ -11,6 +11,8 @@ from unittest import mock
 
 from motor import pdf
 from motor.plantilla import generar_cartas_certificadas
+from motor.tests import programas_falsos
+from motor.tests.programas_falsos import programa_falso
 from motor.tests.test_plantillas_tipos import _config, _info
 
 HAY_LIBREOFFICE = pdf.conversion_disponible()
@@ -23,11 +25,30 @@ def _un_paquete(carpeta, cartas=3, causas=2):
     return resultado["archivos"][0]
 
 
-def _programa_falso(carpeta, cuerpo):
-    ruta = Path(carpeta, "soffice-falso")
-    ruta.write_text("#!/bin/sh\n" + cuerpo + "\n")
-    ruta.chmod(ruta.stat().st_mode | stat.S_IEXEC)
-    return str(ruta)
+def _sigue_vivo(pid):
+    """¿El proceso existe y no es un zombi? Un proceso que murió sin que su
+    padre lo recoja queda en /proc en estado Z. Pasa cuando las pruebas
+    corren como el primer proceso del contenedor (docker run sin --init):
+    los huérfanos pasan a ser hijos de este proceso, que nunca los recoge."""
+    try:
+        estado = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+    except (OSError, IndexError):
+        return False
+    return estado != "Z"
+
+
+class ProgramasFalsosTest(unittest.TestCase):
+    def test_en_una_carpeta_montada_con_noexec_la_prueba_se_salta_con_el_motivo(self):
+        with tempfile.TemporaryDirectory() as carpeta, \
+                mock.patch.object(programas_falsos, "montada_sin_ejecucion", return_value=True):
+            with self.assertRaisesRegex(unittest.SkipTest, "noexec"):
+                programa_falso(carpeta, "exit 0")
+            self.assertEqual(os.listdir(carpeta), [])
+
+    def test_en_una_carpeta_normal_entrega_un_programa_que_corre(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            ruta = programa_falso(carpeta, "exit 7")      # se salta solo si /tmp es noexec
+            self.assertEqual(subprocess.run([ruta], check=False).returncode, 7)
 
 
 class SinLibreOfficeTest(unittest.TestCase):
@@ -42,7 +63,7 @@ class SinLibreOfficeTest(unittest.TestCase):
     def test_si_el_programa_falla_no_queda_ningun_pdf_ni_temporal(self):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
-            falso = _programa_falso(carpeta, "echo 'no pude' >&2; exit 3")
+            falso = programa_falso(carpeta, "echo 'no pude' >&2; exit 3")
             with self.assertRaisesRegex(pdf.ErrorPdf, r"código 3.*no pude"):
                 pdf.convertir_a_pdf(docx, binario=falso)
             self.assertEqual([p.name for p in Path(carpeta).glob("*.pdf*")], [])
@@ -50,7 +71,7 @@ class SinLibreOfficeTest(unittest.TestCase):
     def test_si_el_programa_no_termina_se_corta(self):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
-            falso = _programa_falso(carpeta, "sleep 30")
+            falso = programa_falso(carpeta, "sleep 30")
             with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
 
@@ -60,14 +81,14 @@ class SinLibreOfficeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as carpeta:
             docx = _un_paquete(carpeta)
             ruta_pid = Path(carpeta, "nieto.pid")
-            falso = _programa_falso(carpeta, f"sleep 60 &\necho $! > {ruta_pid}\nwait")
+            falso = programa_falso(carpeta, f"sleep 60 &\necho $! > {ruta_pid}\nwait")
             with self.assertRaisesRegex(pdf.ErrorPdf, "no terminó en 1 s"):
                 pdf.convertir_a_pdf(docx, binario=falso, tiempo_maximo=1)
             nieto = int(ruta_pid.read_text())
             limite = time.monotonic() + 5
-            while Path(f"/proc/{nieto}").exists() and time.monotonic() < limite:
+            while _sigue_vivo(nieto) and time.monotonic() < limite:
                 time.sleep(0.05)
-            self.assertFalse(Path(f"/proc/{nieto}").exists(), "quedó vivo el proceso que convertía")
+            self.assertFalse(_sigue_vivo(nieto), "quedó vivo el proceso que convertía")
             self.assertFalse(Path(pdf.carpeta_de_trabajo(docx)).exists())
 
     def test_si_falla_no_queda_un_pdf_de_una_conversion_anterior(self):
@@ -75,7 +96,7 @@ class SinLibreOfficeTest(unittest.TestCase):
             docx = _un_paquete(carpeta)
             Path(pdf.ruta_pdf_de(docx)).write_bytes(b"%PDF-1.7 de antes\n%%EOF")
             with self.assertRaises(pdf.ErrorPdf):
-                pdf.convertir_a_pdf(docx, binario=_programa_falso(carpeta, "exit 1"))
+                pdf.convertir_a_pdf(docx, binario=programa_falso(carpeta, "exit 1"))
             self.assertFalse(Path(pdf.ruta_pdf_de(docx)).exists())
 
     def test_un_programa_que_no_se_puede_ejecutar_es_un_error_de_pdf(self):
@@ -83,7 +104,7 @@ class SinLibreOfficeTest(unittest.TestCase):
             docx = _un_paquete(carpeta)
             no_ejecutable = Path(carpeta, "soffice-sin-permiso")
             no_ejecutable.write_text("#!/bin/sh\n")
-            with self.assertRaisesRegex(pdf.ErrorPdf, "no se pudo escribir el PDF|no está instalado"):
+            with self.assertRaisesRegex(pdf.ErrorPdf, "no se pudo ejecutar LibreOffice"):
                 pdf.convertir_a_pdf(docx, binario=str(no_ejecutable))
 
     def test_un_pdf_a_medio_escribir_no_cuenta_como_pdf(self):

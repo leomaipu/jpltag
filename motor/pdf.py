@@ -132,6 +132,8 @@ def convertir_a_pdf(ruta_docx, binario=BINARIO_DEFECTO, tiempo_maximo=TIEMPO_MAX
             proceso = subprocess.Popen(orden, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=entorno)
         except FileNotFoundError:
             raise ErrorPdf(f"LibreOffice («{binario}») no está instalado en el servidor") from None
+        except OSError as exc:      # p. ej. sin permiso de ejecución
+            raise ErrorPdf(f"no se pudo ejecutar LibreOffice («{binario}»): {exc}") from None
         try:
             _, errores = proceso.communicate(timeout=tiempo_maximo)
         except subprocess.TimeoutExpired:

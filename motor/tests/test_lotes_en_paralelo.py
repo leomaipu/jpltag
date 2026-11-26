@@ -13,6 +13,7 @@ from motor import pdf, plantilla
 from motor.ejecucion_lotes import EjecutorEnProcesos, EjecutorEnSerie, Resultado
 from motor.plantilla import generar_cartas_certificadas
 from motor.plantilla import texto_de
+from motor.tests.programas_falsos import programa_falso
 from motor.tests.test_plantillas_tipos import _config, _info
 
 HAY_LIBREOFFICE = pdf.conversion_disponible()
@@ -160,15 +161,13 @@ class ConPdfTest(unittest.TestCase):
 
     def test_un_conversor_colgado_no_hace_fallar_el_lote_si_el_plazo_del_lote_lo_cubre(self):
         with tempfile.TemporaryDirectory() as carpeta, self.assertLogs("motor.plantilla", level="ERROR"):
-            falso = Path(carpeta, "soffice-colgado")
-            falso.write_text("#!/bin/sh\nsleep 60\n")
-            falso.chmod(0o755)
+            falso = programa_falso(carpeta, "sleep 60", nombre="soffice-colgado")
             resultado = _generar(
                 carpeta, n=2, por_lote=1, ejecutor=EjecutorEnProcesos(paralelos=2, tiempo_maximo=30),
-                conversor_pdf=pdf.ConversorLibreOffice(binario=str(falso), tiempo_maximo=1),
+                conversor_pdf=pdf.ConversorLibreOffice(binario=falso, tiempo_maximo=1),
             )
             self.assertEqual((len(resultado["archivos"]), resultado["lotes_sin_pdf"], resultado["errores"]), (2, [1, 2], []))
-            self.assertEqual(sorted(p.suffix for p in Path(carpeta).iterdir() if p.name != falso.name),
+            self.assertEqual(sorted(p.suffix for p in Path(carpeta).iterdir() if p.name != Path(falso).name),
                              [".docx", ".docx", ".xlsx"])
 
     def test_si_el_proceso_muere_mientras_convierte_el_word_queda_y_el_lote_sale_sin_pdf(self):

@@ -7,7 +7,7 @@ juzgado. Porteado de generar_notificaciones_JPL1.py.
 import re
 from collections import Counter
 
-from .columnas import get_col, parsear_fecha
+from .columnas import fecha_para_carta, get_col, hora_para_carta, normalizar_hora, parsear_fecha, sin_id_smc
 from .multas import buscar_multa
 
 
@@ -94,6 +94,8 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 "causas": [],
                 # Fechas de citación que trae la nómina (ISO), para elegir la de la carta.
                 "citaciones": [],
+                # Horas de citación por fecha (ISO -> {"HH:MM" o "" si no trae}).
+                "horas_citacion": {},
             }
 
         cita_row = get_col(row, "FECHA_CITA")
@@ -103,15 +105,17 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
                 iso = f"{a_c:04d}-{m_c:02d}-{d_c:02d}"
                 if iso not in grupos[pat]["citaciones"]:
                     grupos[pat]["citaciones"].append(iso)
+                grupos[pat]["horas_citacion"].setdefault(iso, set()).add(
+                    normalizar_hora(get_col(row, "HORA_CITA")))
             else:
                 grupos[pat]["citacion_ilegible"] = True
 
-        disposicion_row = get_col(row, "DISPOSICION") or "—"
+        disposicion_row = sin_id_smc(get_col(row, "DISPOSICION")) or "—"
         grupos[pat]["causas"].append({
             "nroParte": nro_parte_row or "—",
             "rol_raw": get_col(row, "ROL"),
-            "fecha": fecha_row or "—",
-            "hora": get_col(row, "HORA_INF") or "—",
+            "fecha": fecha_para_carta(fecha_row) or "—",
+            "hora": hora_para_carta(get_col(row, "HORA_INF")) or "—",
             "lugar": get_col(row, "LUGAR") or "—",
             "disposicion": disposicion_row,
             "monto": buscar_multa(disposicion_row, tabla_multas, utm_multa_defecto, avisos_no_encontrados),
@@ -128,8 +132,15 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
         # Regla provisoria: con fechas distintas en una misma patente, la más
         # temprana; el resultado avisa para que el juzgado decida (ver generacion).
         if g["citaciones"]:
-            a_c, m_c, d_c = (int(x) for x in min(g["citaciones"]).split("-"))
+            primera = min(g["citaciones"])
+            a_c, m_c, d_c = (int(x) for x in primera.split("-"))
             g["citacion"] = f"{d_c:02d}/{m_c:02d}/{a_c:04d}"
+            # La hora solo si todas las causas de esa fecha traen la misma: con
+            # horas distintas, o alguna sin hora, la carta no afirma una.
+            horas = g["horas_citacion"].get(primera, set())
+            g["citacion_hora"] = next(iter(horas)) if len(horas) == 1 else ""
+        # Sets no van al JSON del trabajo en segundo plano.
+        g["horas_citacion"] = {iso: sorted(h) for iso, h in g["horas_citacion"].items()}
 
     patentes_sin_causas = {pat: g for pat, g in grupos.items() if not g["causas"]}
     for pat in patentes_sin_causas:

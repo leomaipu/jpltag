@@ -585,10 +585,16 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             if tipo_carta != TipoCarta.SENTENCIA:
                 avisos["agenda_desactivada"] = True
                 # La fecha de citación la fija el Juzgado en SMC y viene en la
-                # nómina (sin hora): la carta la imprime tal cual.
+                # nómina (con su hora si la trae; 00:00 = sin hora).
                 reserva.slots, avisos_citacion = _citaciones_de_la_nomina(df_limpio, incluidos, solicitud.bloques_audiencia,
                                                                         (solicitud.fechas_tanda, solicitud.cartas_por_fecha))
                 avisos.update(avisos_citacion)
+                if tipo_carta == TipoCarta.CITACION_SENTENCIA:
+                    # Condena «si no comparece el día señalado» sin día señalado:
+                    # la carta sale, pero quien genera debe verlo antes de enviarla.
+                    sin_dia = sum(1 for pat in incluidos if pat not in reserva.slots)
+                    if sin_dia:
+                        avisos["condena_sin_fecha"] = sin_dia
             with transaction.atomic():
                 return _encolar(reserva)
         if solicitud.bloques_audiencia or tiene_columna(df_limpio, "FECHA_CITA"):
@@ -609,8 +615,9 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
 
 
 def _citaciones_de_la_nomina(df, incluidos, bloques=(), tandas=((), 0)):
-    """{patente: (fecha, "")} con la fecha de audiencia de cada carta, y los
-    avisos para que la persona revise.
+    """{patente: (fecha, hora)} con la fecha de audiencia de cada carta, y los
+    avisos para que la persona revise. La hora solo sale de la nómina (paso
+    2) y puede ir vacía; las fechas del formulario no llevan hora.
 
     1. Las fechas que la persona escribió al generar (por bloque de folios)
        mandan: la causa toma la fecha del bloque de su ROL.
@@ -662,7 +669,8 @@ def _citaciones_de_la_nomina(df, incluidos, bloques=(), tandas=((), 0)):
         if date.fromisoformat(min(g["citaciones"])) < hoy:
             pasadas.append(pat)      # no se imprime una audiencia que ya pasó
             continue
-        slots[pat] = (g["citacion"], "")
+        # Con la HORA CITACIÓN de la nómina, si la trae (00:00 = sin hora).
+        slots[pat] = (g["citacion"], g.get("citacion_hora", ""))
         if len(g["citaciones"]) > 1:
             distintas.append(pat)
     if pendientes:

@@ -31,18 +31,25 @@ MAPEO = {
     "FECHA_INF": ["fecha infracción", "fecha infrac", "fecha inf"],
     "HORA_INF": ["hora infracción", "hora infrac", "hora inf", "hora"],
     "LUGAR": ["lugar de la infracción", "lugar de la", "lugar"],
-    "DISPOSICION": ["disposiciones infringidas", "disposicion", "disposición"],
+    # Sin columna de disposición, la descripción de la causa de SMC
+    # («Infraccion al Art. 114 ... - ID:15022921»; ver sin_id_smc).
+    "DISPOSICION": ["disposiciones infringidas", "disposicion", "disposición",
+                    "descripcion_causa", "descripción causa", "descripcion causa"],
     "PATENTE": ["patente"],
     "DIG_PAT": ["digito patente", "digito pate", "dígito patente"],
     "TIPO_VEH": list(ENCABEZADOS_TIPO_VEHICULO),
     "ROL": list(ENCABEZADOS_ROL),   # se busca por encabezado exacto (ver get_col)
-    "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion"],
+    "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion",
+                   "fecha_citacion", "fecha_citación"],
+    "HORA_CITA": ["hora citación", "hora citacion", "hora de citación", "hora de citacion",
+                  "hora_citacion", "hora_citación"],
     "REG": ["folio carta tramite", "reg n", "registro"],
     "RUT": ["cedula de identidad", "cedula", "rut"],
     "DV": ["digito verifcador", "digito verif", "dígito verif", "dv"],
     "NOMBRE": ["nombre infractor", "nombre inf", "nombre"],
-    "AP1": ["apellido 1", "ap1"],
-    "AP2": ["apellido 2", "ap2"],
+    # «APELLIDO PATERNO» / «APELLIDO MATERNO»: los que deja cleandata/ajustar_jpltag.py.
+    "AP1": ["apellido 1", "ap1", "apellido paterno"],
+    "AP2": ["apellido 2", "ap2", "apellido materno"],
     "DOMICILIO": ["domicilio infractor", "domicilio inf", "domicilio"],
     "COMUNA": ["comuna"],
     "MARCA": ["marca del vehiculo", "marca del", "marca"],
@@ -112,3 +119,40 @@ def parsear_fecha(fecha_str):
         except Exception:
             pass
     return None, None, None
+
+
+def sin_id_smc(descripcion):
+    """«Infraccion al Art. 114 ... - ID:16381469» → sin el « - ID:…» final, que
+    SMC agrega a cada causa (es distinto en cada fila y no va en la carta)."""
+    return re.sub(r"\s*-\s*ID:\s*\d+\s*$", "", str(descripcion)).strip()
+
+
+def normalizar_hora(valor):
+    """«09:30», «9:30:00» → «09:30». Vacío si no es una hora, o si es
+    «00:00»: SMC deja la medianoche cuando no hay hora (la FECHA_CITACION
+    de la nómina trae siempre 00:00:00), y una carta no debe citar a las
+    00:00."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?", str(valor or "").strip())
+    if not m:
+        return ""
+    hora, minuto = int(m.group(1)), int(m.group(2))
+    if hora > 23 or minuto > 59 or (hora, minuto) == (0, 0):
+        return ""
+    return f"{hora:02d}:{minuto:02d}"
+
+
+def fecha_para_carta(valor):
+    """«2026-02-06» (como la deja cleandata/ajustar_jpltag.py) → «06/02/2026»,
+    el formato de las cartas. Un texto que no es fecha queda tal cual."""
+    anio, mes, dia = parsear_fecha(valor) if str(valor or "").strip() else (None, None, None)
+    return f"{dia:02d}/{mes:02d}/{anio:04d}" if anio else valor
+
+
+def hora_para_carta(valor):
+    """«06:41:00» → «06:41». A diferencia de normalizar_hora, la medianoche
+    se conserva: una infracción a las 00:00 es real. Lo que no es hora queda
+    tal cual."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?", str(valor or "").strip())
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        return valor
+    return f"{int(m.group(1)):02d}:{m.group(2)}"

@@ -35,10 +35,17 @@ Texto simple — se usan con {{ nombre_del_marcador }}:
                             en la agenda) — solo en cartas con citación
     fecha_audiencia        "06/10/2026": la fecha de la audiencia (citación)
                             o de la sentencia (carta de sentencia)
-    hora_audiencia         "09:30" (vacío en sentencia o sin agenda)
+    fecha_audiencia_larga  "6 de octubre de 2026": la misma fecha en palabras,
+                            como fecha_hoy ("" si no hay fecha, p. ej. a
+                            coordinar). La carta de sentencia del 1er JPL la
+                            usa como fecha de la resolución.
+    hora_audiencia         "09:30" (vacío en sentencia o sin hora)
     condena_monto          "1 UTM" — monto de la condena por infracción
                             (si las infracciones de la patente tienen multas
-                            distintas, "la multa indicada")
+                            distintas, "la multa indicada"; para escribir
+                            "una multa de 1 UTM" sin que con multas distintas
+                            diga "una multa de la multa indicada":
+                            {% if 'UTM' in condena_monto %}una multa de {% endif %}{{ condena_monto }})
     parte, total_partes    si la patente tiene más infracciones que caben en
                             una página, la carta sale en varias partes
     causa_desde, causa_hasta, total_causas
@@ -93,6 +100,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from .excel_seguro import df_a_xlsx
+from docx.oxml.ns import qn
 from docx.shared import Inches
 from docxcompose.composer import Composer
 from docxtpl import DocxTemplate, InlineImage
@@ -109,6 +117,7 @@ from .cartas import (
     ahora_chile,
     clausula_audiencia,
     condena_monto_txt,
+    fecha_en_palabras,
     fecha_hoy,
     fmt_utm,
     fmt_utm_simple,
@@ -260,6 +269,7 @@ def construir_contexto(pg, slot_audiencia, numero_carta, config):
         "patente": pat_completa,
         "clausula_audiencia": "" if tipo == TIPO_SENTENCIA else clausula_audiencia(fecha_aud, hora_txt),
         "fecha_audiencia": fecha_aud,
+        "fecha_audiencia_larga": fecha_en_palabras(fecha_aud),
         "hora_audiencia": hora_aud,
         "condena_monto": condena_monto_txt(info["causas"]),
         "parte": parte,
@@ -349,14 +359,47 @@ def renderizar_carta(ruta_plantilla, contexto, config):
     return tpl.docx
 
 
+def _empezar_en_hoja_nueva(doc):
+    """Marca el primer párrafo de la carta con «salto de página anterior».
+
+    No se agrega un párrafo con el salto al final de la carta anterior: si
+    esa carta llena la hoja justo hasta el final (12 infracciones de textos
+    largos, timbre y firma), ese párrafo extra cae solo en la hoja siguiente
+    y el salto deja una hoja en blanco entre dos cartas. Si la carta no
+    empieza con un párrafo (p. ej. una tabla), se antepone uno vacío con la
+    marca."""
+    from docx.oxml import OxmlElement
+
+    cuerpo = doc.element.body
+    primero = cuerpo[0] if len(cuerpo) else None
+    if primero is None or primero.tag != qn("w:p"):
+        primero = OxmlElement("w:p")
+        cuerpo.insert(0, primero)
+    ppr = primero.get_or_add_pPr()
+    existente = ppr.find(qn("w:pageBreakBefore"))
+    if existente is not None:
+        # <w:pageBreakBefore w:val="0"/> en una plantilla subida lo apagaría.
+        existente.attrib.pop(qn("w:val"), None)
+    else:
+        salto = OxmlElement("w:pageBreakBefore")
+        # Orden del esquema de pPr: pStyle, keepNext, keepLines, pageBreakBefore, ...
+        anteriores = [ppr.find(qn(t)) for t in ("w:pStyle", "w:keepNext", "w:keepLines")]
+        anteriores = [e for e in anteriores if e is not None]
+        if anteriores:
+            anteriores[-1].addnext(salto)
+        else:
+            ppr.insert(0, salto)
+
+
 def combinar_cartas(documentos):
-    """Une varios Document (uno por carta) en 1 solo .docx, con un salto
-    de página entre cada uno — ninguno antes del primero, igual que
+    """Une varios Document (uno por carta) en 1 solo .docx; cada carta
+    después de la primera empieza en una hoja nueva (ver
+    _empezar_en_hoja_nueva) — ninguna antes de la primera, igual que
     is_first_page en el motor anterior."""
     maestro = documentos[0]
     composer = Composer(maestro)
     for doc in documentos[1:]:
-        composer.doc.add_page_break()
+        _empezar_en_hoja_nueva(doc)
         composer.append(doc)
     return maestro
 
@@ -380,6 +423,7 @@ def contexto_de_ejemplo(tipo=TIPO_CITACION):
         "patente": "ZZZZ99-9",
         "clausula_audiencia": "el día 15/10/2026, a las 09:30 hrs.",
         "fecha_audiencia": "15/10/2026",
+        "fecha_audiencia_larga": "15 de octubre de 2026",
         "hora_audiencia": "09:30",
         "condena_monto": "3 UTM",
         "parte": 1,
@@ -410,7 +454,8 @@ def contexto_de_ejemplo(tipo=TIPO_CITACION):
 
 
 # Qué debe aparecer, como mínimo, en el texto de una carta renderizada con
-# contexto_de_ejemplo(): (valor de ejemplo, marcador, descripción). Si una
+# contexto_de_ejemplo(): (valor de ejemplo —o una tupla de formas válidas—,
+# marcador, descripción). Si una
 # plantilla subida no los trae, está incompleta — p. ej. un Word nuevo
 # sin los marcadores — y es mejor rechazarla al subirla que descubrirlo
 # imprimiendo cartas sin el nombre ni la patente del infractor.
@@ -429,7 +474,8 @@ _OBLIGATORIOS_POR_TIPO = {
         ("3 UTM", "condena_monto", "el monto de la condena"),
     ],
     TIPO_SENTENCIA: [
-        ("15/10/2026", "fecha_audiencia", "la fecha de la sentencia"),
+        (("15/10/2026", "15 de octubre de 2026"), "{{ fecha_audiencia }} o {{ fecha_audiencia_larga }}",
+         "la fecha de la sentencia"),
         ("3 UTM", "condena_monto", "el monto de la condena"),
     ],
 }
@@ -490,7 +536,7 @@ def validar_plantilla(archivo, tipo=None):
         faltan = [
             f"{desc} ({{{{ {marcador} }}}})" if "{" not in marcador else f"{desc} ({marcador})"
             for valor, marcador, desc in _OBLIGATORIOS_COMUNES + _OBLIGATORIOS_POR_TIPO[tipo]
-            if valor not in texto
+            if not any(v in texto for v in ((valor,) if isinstance(valor, str) else valor))
         ]
         if faltan:
             return False, "A la plantilla le falta: " + "; ".join(faltan) + "."

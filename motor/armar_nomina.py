@@ -24,6 +24,7 @@ from datetime import date, datetime
 import pandas as pd
 
 from .audiencias import correlativo_rol as _correlativo
+from .columnas import sin_id_smc
 
 COLUMNAS_NOMINA = [
     "ROL", "NRO PARTE", "OFICINA REMISORA", "DESCRIPCIÓN CAUSA", "disposicion",
@@ -108,9 +109,7 @@ def _domicilio_valido(texto):
     return sum(c.isalpha() for c in str(texto or "")) >= 3
 
 
-def _sin_id(descripcion):
-    """«Infraccion al Art. 114 ... - ID:16381469» → sin el « - ID:…» final."""
-    return re.sub(r"\s*-\s*ID:\s*\d+\s*$", "", str(descripcion)).strip()
+_sin_id = sin_id_smc
 
 
 @dataclass

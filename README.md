@@ -51,12 +51,43 @@ Cada Juzgado emite tres tipos de carta, que se elige al subir la nómina:
 `jpl2/`, `jpl3/` (`citacion.docx`, `citacion_sentencia.docx`,
 `sentencia.docx`), adaptadas de los ejemplos que entregó cada Juzgado:
 conservan su diseño y su redacción (por ejemplo, la citación del 2do
-JPL no dice "a prestar declaración indagatoria"; el 1ro y el 3ro sí).
+JPL no dice "a prestar declaración indagatoria"; el 1ro y el 3ro sí;
+ver abajo las del 1er JPL).
 Se usan según el número del Juzgado (`jpl1`/`jpl2`/`jpl3` en el slug, o
 "PRIMER/SEGUNDO/TERCER" en el nombre): **el slug de cada Juzgado debe
 ser `jpl1`, `jpl2` o `jpl3`**. Si no se puede deducir el número y el
 Juzgado no subió plantilla propia, la generación **falla con un mensaje
 claro** en vez de usar el texto legal de otro Juzgado.
+
+**1er JPL, «Citación y sentencia» y «Notificación de sentencia»** (nov-2026):
+salen de los modelos que entregó el Juzgado (`MODELO PLANTILLA CITACIÓN Y
+SENTENCIA` y `MODELO PLANTILLA NOTIFICACIÓN DE SENTENCIA`), con su
+redacción ("Cítese al denunciado... a formular descargo", "SE RESUELVE:
+Condénese..."). Los campos de combinación del modelo pasaron a marcadores
+(`«Placa_Vehiculo»` → `{{ patente }}`; «Fecha/Hora_Citacion_Proceso» →
+`{{ clausula_audiencia }}`, que sin hora dice solo «el día X» y sin fecha
+«en fecha y hora a coordinar»). La firma con timbre escaneada que traía el
+modelo **no** está en el repo: va por `/plantilla/` como en los demás. La
+notificación de sentencia va fechada el día de la sentencia
+(`{{ fecha_audiencia_larga }}`, la fecha que se indica al generar). Para
+que la carta de citación y sentencia quepa en una hoja con timbre y firma,
+«Queda notificado en este acto...» va a la izquierda del bloque de firma.
+
+**Nómina de `cleandata/ajustar_jpltag.py`.** El motor lee sin adaptadores
+los Excel de SMC que limpia ese script: `NOMBRE INFRACTOR` + `APELLIDO
+PATERNO` + `APELLIDO MATERNO`, `DESCRIPCION_CAUSA` como disposición (sin el
+« - ID:…» que SMC agrega a cada causa), `FECHA INFRACCIÓN` en `AAAA-MM-DD`
+(la carta la imprime `DD/MM/AAAA`), `HORA INFRACCIÓN` con segundos (la carta
+imprime `HH:MM`) y `FECHA_CITACION` / `HORA_CITACION`. SMC deja la hora de
+citación en `00:00:00` cuando no la hay: esa hora no se imprime.
+
+> **Ojo con el mes.** El motor espera una nómina de **un** mes: toma el mes
+> predominante y deja fuera las patentes cuya primera infracción es de otro
+> mes. Los export de SMC de nov-2026 traen tres meses de infracciones
+> (feb–abr en el 1er JPL): más de la mitad de las patentes queda «de otro
+> mes», y una patente incluida puede traer causas de los otros meses. Hasta
+> decidir el criterio, conviene separar la nómina por mes de infracción
+> antes de subirla.
 
 Cada Juzgado puede cambiar su texto desde `/plantilla/`: descarga la que
 se usa hoy ("Descargar la que se usa hoy"), la edita en Word conservando

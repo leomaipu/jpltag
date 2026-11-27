@@ -69,10 +69,10 @@
   <div class="pasos">
     {% if form.nomina_guardada.value and not form.nomina.errors %}
     <section class="paso bloque">
-      <h2 class="seccion__titulo">Nómina del mes<small>Armada con «Arma tu nómina».</small></h2>
+      <h2 class="seccion__titulo">Nómina del mes<small>Ya cargada.</small></h2>
       {{ form.nomina_guardada }}
       <p><span class="estado">Lista para usar</span></p>
-      <p class="campo__ayuda">Se usará la nómina que acabas de armar: no hace falta subir ningún Excel. Si prefieres otra, <a href="{% url 'procesos:subir_nomina' %}?juzgado={{ juzgado.slug }}">elige un Excel</a>.</p>
+      <p class="campo__ayuda">Se usará la nómina que ya subiste: no hace falta volver a elegir el Excel. Si prefieres otra, <a href="{% url 'procesos:subir_nomina' %}?juzgado={{ juzgado.slug }}">elige un Excel</a>.</p>
       {{ form.nomina.errors }}
     </section>
     {% else %}

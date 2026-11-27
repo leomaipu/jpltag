@@ -585,7 +585,8 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             if tipo_carta != TipoCarta.SENTENCIA:
                 avisos["agenda_desactivada"] = True
                 # La fecha de citación la fija el Juzgado en SMC y viene en la
-                # nómina (con su hora si la trae; 00:00 = sin hora).
+                # nómina (sin hora). La FECHA_CITACION del export de SMC no se
+                # lee: no es la fecha de la audiencia (ver motor/columnas.py).
                 reserva.slots, avisos_citacion = _citaciones_de_la_nomina(df_limpio, incluidos, solicitud.bloques_audiencia,
                                                                         (solicitud.fechas_tanda, solicitud.cartas_por_fecha))
                 avisos.update(avisos_citacion)
@@ -615,9 +616,8 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
 
 
 def _citaciones_de_la_nomina(df, incluidos, bloques=(), tandas=((), 0)):
-    """{patente: (fecha, hora)} con la fecha de audiencia de cada carta, y los
-    avisos para que la persona revise. La hora solo sale de la nómina (paso
-    2) y puede ir vacía; las fechas del formulario no llevan hora.
+    """{patente: (fecha, "")} con la fecha de audiencia de cada carta, y los
+    avisos para que la persona revise.
 
     1. Las fechas que la persona escribió al generar (por bloque de folios)
        mandan: la causa toma la fecha del bloque de su ROL.
@@ -669,8 +669,7 @@ def _citaciones_de_la_nomina(df, incluidos, bloques=(), tandas=((), 0)):
         if date.fromisoformat(min(g["citaciones"])) < hoy:
             pasadas.append(pat)      # no se imprime una audiencia que ya pasó
             continue
-        # Con la HORA CITACIÓN de la nómina, si la trae (00:00 = sin hora).
-        slots[pat] = (g["citacion"], g.get("citacion_hora", ""))
+        slots[pat] = (g["citacion"], "")
         if len(g["citaciones"]) > 1:
             distintas.append(pat)
     if pendientes:

@@ -2,8 +2,8 @@
 La nómina que deja cleandata/ajustar_jpltag.py (los Excel de SMC limpios)
 se lee sin adaptadores y llena las cartas del 1er JPL sin huecos: nombre con
 sus dos apellidos, disposición sin el « - ID:…» de SMC, fecha y hora de
-infracción con el formato de la carta y la fecha de citación sin la hora
-00:00 que SMC deja cuando no hay hora. Datos SINTÉTICOS.
+infracción con el formato de la carta. Su FECHA_CITACION no es la fecha de la
+audiencia y no se lee. Datos SINTÉTICOS.
 """
 
 import io
@@ -16,7 +16,7 @@ from docx.oxml.ns import qn
 
 from motor.agrupacion import construir_grupos, expandir_en_paginas
 from motor.cartas import fecha_en_palabras
-from motor.columnas import fecha_para_carta, hora_para_carta, normalizar_hora, sin_id_smc
+from motor.columnas import fecha_para_carta, hora_para_carta, sin_id_smc, tiene_columna
 from motor.lectura import leer_nomina
 from motor.plantilla import (
     combinar_cartas,
@@ -74,14 +74,6 @@ class AyudantesTest(unittest.TestCase):
                          "Infraccion al Art. 114 de la Ley N. 18.290 del Transito.")
         self.assertEqual(sin_id_smc("TAG no vigente"), "TAG no vigente")
 
-    def test_normalizar_hora_descarta_la_medianoche_de_relleno(self):
-        self.assertEqual(normalizar_hora("00:00:00"), "")
-        self.assertEqual(normalizar_hora("00:00"), "")
-        self.assertEqual(normalizar_hora("9:30:00"), "09:30")
-        self.assertEqual(normalizar_hora("10:15"), "10:15")
-        for malo in ("", None, "25:00", "mañana", "12:61"):
-            self.assertEqual(normalizar_hora(malo), "")
-
     def test_hora_para_carta_conserva_la_medianoche(self):
         self.assertEqual(hora_para_carta("06:41:00"), "06:41")
         self.assertEqual(hora_para_carta("00:00:00"), "00:00")
@@ -116,22 +108,13 @@ class NominaAjustadaTest(unittest.TestCase):
         self.assertEqual(causa["fecha"], "01/02/2026")
         self.assertEqual(causa["hora"], "06:41")
         self.assertEqual(causa["lugar"], "Pórtico sintético 0, Autopista de Prueba")
-        self.assertEqual(info["citacion"], "15/12/2026")
-        self.assertEqual(info["citacion_hora"], "")          # 00:00:00 = sin hora
+        # La FECHA_CITACION de SMC no es la audiencia: no se usa.
+        self.assertNotIn("citacion", info)
+        self.assertEqual(info["citaciones"], [])
         self.assertEqual(avisos["disposiciones_sin_multa_definida"], [])
 
-    def test_hora_de_citacion_real_se_usa(self):
-        g, _, _ = construir_grupos(_nomina([_fila(0, hora_cita="10:30:00"), _fila(1, hora_cita="10:30:00")]), [], 1)
-        self.assertEqual(g["ZZZZ99"]["citacion_hora"], "10:30")
-
-    def test_horas_de_citacion_distintas_no_se_afirman(self):
-        g, _, _ = construir_grupos(_nomina([_fila(0, hora_cita="10:30:00"), _fila(1, hora_cita="11:00:00")]), [], 1)
-        self.assertEqual(g["ZZZZ99"]["citacion_hora"], "")
-
-    def test_la_hora_es_la_de_la_fecha_mas_temprana(self):
-        g, _, _ = construir_grupos(_nomina([_fila(0, cita="2026-12-20", hora_cita="11:00:00"),
-                                            _fila(1, cita="2026-12-15", hora_cita="09:00:00")]), [], 1)
-        self.assertEqual((g["ZZZZ99"]["citacion"], g["ZZZZ99"]["citacion_hora"]), ("15/12/2026", "09:00"))
+    def test_la_fecha_de_citacion_de_smc_no_se_reconoce_como_columna(self):
+        self.assertFalse(tiene_columna(_nomina([_fila(0)]), "FECHA_CITA"))
 
     def test_persona_juridica_sin_apellidos(self):
         g, _, _ = construir_grupos(_nomina([_fila(0, rut=76123456, dv="K", nombre="TRANSPORTES PRUEBA SPA",

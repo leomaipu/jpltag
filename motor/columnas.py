@@ -39,10 +39,10 @@ MAPEO = {
     "DIG_PAT": ["digito patente", "digito pate", "dígito patente"],
     "TIPO_VEH": list(ENCABEZADOS_TIPO_VEHICULO),
     "ROL": list(ENCABEZADOS_ROL),   # se busca por encabezado exacto (ver get_col)
-    "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion",
-                   "fecha_citacion", "fecha_citación"],
-    "HORA_CITA": ["hora citación", "hora citacion", "hora de citación", "hora de citacion",
-                  "hora_citacion", "hora_citación"],
+    # «FECHA_CITACION» (con guion bajo) del export de SMC que deja
+    # cleandata/ajustar_jpltag.py NO es la fecha de la audiencia (decisión del
+    # usuario, nov-2026): no calza con estos patrones a propósito.
+    "FECHA_CITA": ["fecha citación", "fecha citacion", "fecha de citación", "fecha de citacion"],
     "REG": ["folio carta tramite", "reg n", "registro"],
     "RUT": ["cedula de identidad", "cedula", "rut"],
     "DV": ["digito verifcador", "digito verif", "dígito verif", "dv"],
@@ -127,20 +127,6 @@ def sin_id_smc(descripcion):
     return re.sub(r"\s*-\s*ID:\s*\d+\s*$", "", str(descripcion)).strip()
 
 
-def normalizar_hora(valor):
-    """«09:30», «9:30:00» → «09:30». Vacío si no es una hora, o si es
-    «00:00»: SMC deja la medianoche cuando no hay hora (la FECHA_CITACION
-    de la nómina trae siempre 00:00:00), y una carta no debe citar a las
-    00:00."""
-    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?", str(valor or "").strip())
-    if not m:
-        return ""
-    hora, minuto = int(m.group(1)), int(m.group(2))
-    if hora > 23 or minuto > 59 or (hora, minuto) == (0, 0):
-        return ""
-    return f"{hora:02d}:{minuto:02d}"
-
-
 def fecha_para_carta(valor):
     """«2026-02-06» (como la deja cleandata/ajustar_jpltag.py) → «06/02/2026»,
     el formato de las cartas. Un texto que no es fecha queda tal cual."""
@@ -149,9 +135,8 @@ def fecha_para_carta(valor):
 
 
 def hora_para_carta(valor):
-    """«06:41:00» → «06:41». A diferencia de normalizar_hora, la medianoche
-    se conserva: una infracción a las 00:00 es real. Lo que no es hora queda
-    tal cual."""
+    """«06:41:00» → «06:41» (la medianoche se conserva: una infracción a las
+    00:00 es real). Lo que no es hora queda tal cual."""
     m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?", str(valor or "").strip())
     if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
         return valor

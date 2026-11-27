@@ -77,17 +77,19 @@ que la carta de citación y sentencia quepa en una hoja con timbre y firma,
 los Excel de SMC que limpia ese script: `NOMBRE INFRACTOR` + `APELLIDO
 PATERNO` + `APELLIDO MATERNO`, `DESCRIPCION_CAUSA` como disposición (sin el
 « - ID:…» que SMC agrega a cada causa), `FECHA INFRACCIÓN` en `AAAA-MM-DD`
-(la carta la imprime `DD/MM/AAAA`), `HORA INFRACCIÓN` con segundos (la carta
-imprime `HH:MM`) y `FECHA_CITACION` / `HORA_CITACION`. SMC deja la hora de
-citación en `00:00:00` cuando no la hay: esa hora no se imprime.
+(la carta la imprime `DD/MM/AAAA`) y `HORA INFRACCIÓN` con segundos (la carta
+imprime `HH:MM`). El ROL va tal como lo trae la nómina.
 
-> **Ojo con el mes.** El motor espera una nómina de **un** mes: toma el mes
-> predominante y deja fuera las patentes cuya primera infracción es de otro
-> mes. Los export de SMC de nov-2026 traen tres meses de infracciones
-> (feb–abr en el 1er JPL): más de la mitad de las patentes queda «de otro
-> mes», y una patente incluida puede traer causas de los otros meses. Hasta
-> decidir el criterio, conviene separar la nómina por mes de infracción
-> antes de subirla.
+- La `FECHA_CITACION` de SMC **no** es la fecha de la audiencia: el motor no
+  la lee. La fecha de audiencia sale del formulario al generar (o de la
+  agenda, si está activa).
+- El script deja **un archivo por mes de infracción**
+  (`<nombre>_AAAA-MM_jpltag.xlsx`), porque el motor procesa una nómina de un
+  mes (el «mes predominante»: con un archivo por mes, todas las patentes son
+  de ese mes). Las filas sin fecha de infracción van en
+  `<nombre>_sin_fecha_jpltag.xlsx` para revisarlas a mano.
+- Las causas pagadas se omiten (quedan anotadas en `_revisar.xlsx`); las
+  archivadas sin pago se procesan.
 
 Cada Juzgado puede cambiar su texto desde `/plantilla/`: descarga la que
 se usa hoy ("Descargar la que se usa hoy"), la edita en Word conservando

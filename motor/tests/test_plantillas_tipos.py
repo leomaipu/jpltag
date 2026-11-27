@@ -27,6 +27,14 @@ from motor.plantilla import (
 
 ORDINAL = {1: "1er", 2: "2do", 3: "3er"}
 
+# Las cartas de «citación y sentencia» y de «notificación de sentencia» del
+# 1er JPL son las de sus modelos (cleandata/cartajpl1, nov-2026): redacción
+# propia, sin la línea «Tipo de vehículo» y con la sentencia fechada el día
+# de la sentencia.
+MODELO_JPL1 = {(1, "CITACION_SENTENCIA"), (1, "SENTENCIA")}
+# Cómo nombra cada carta a su Juzgado en el texto (además del encabezado).
+MENCION_JUZGADO = {(1, "CITACION_SENTENCIA"): "en el 1° JPL de Maipú"}
+
 
 def _info(montos=(1,)):
     return {
@@ -85,9 +93,12 @@ class TestPlantillasPorDefecto(unittest.TestCase):
                     t = _renderizar(n, tipo)
                     for resto in ("{{", "}}", "{%", "%}"):
                         self.assertNotIn(resto, t)
-                    for dato in ("MARIA PRUEBA SINTETICA", "99999999-9", "Calle Inventada 123",
-                                 "ZZZZ99-7", "Marca X, Modelo Y", "ANA FIRMANTE DE PRUEBA",
-                                 "SECRETARIA ABOGADA", "Autopista Sintetica km 1"):
+                    datos = ["MARIA PRUEBA SINTETICA", "99999999-9", "Calle Inventada 123",
+                             "ZZZZ99-7", "ANA FIRMANTE DE PRUEBA", "SECRETARIA ABOGADA",
+                             "Autopista Sintetica km 1", "R-77"]
+                    if (n, tipo) not in MODELO_JPL1:
+                        datos.append("Marca X, Modelo Y")
+                    for dato in datos:
                         self.assertIn(dato, t)
 
     def test_cada_juzgado_nombra_su_propio_ordinal(self):
@@ -95,9 +106,10 @@ class TestPlantillasPorDefecto(unittest.TestCase):
             for tipo in TIPOS_CARTA:
                 with self.subTest(juzgado=n, tipo=tipo):
                     t = _renderizar(n, tipo)
-                    self.assertIn(f"en el {ORDINAL[n]} Juzgado de Policía Local", t)
+                    self.assertIn(MENCION_JUZGADO.get((n, tipo), f"en el {ORDINAL[n]} Juzgado de Policía Local"), t)
                     for otro in set(ORDINAL) - {n}:
                         self.assertNotIn(f"en el {ORDINAL[otro]} Juzgado", t)
+                        self.assertNotIn(f"{otro}° JPL", t)
 
     def test_citacion_usa_la_agenda_y_no_condena(self):
         for n in (1, 2, 3):
@@ -106,15 +118,42 @@ class TestPlantillasPorDefecto(unittest.TestCase):
             self.assertNotIn("CONDENADO", t)
 
     def test_citacion_y_sentencia_trae_la_condena(self):
-        for n in (1, 2, 3):
+        for n in (2, 3):
             t = _renderizar(n, "CITACION_SENTENCIA")
             self.assertIn("el día 06/10/2026, a las 09:30 hrs.", t)
             self.assertIn("será CONDENADO(A) al pago de 1 UTM por infracción", t)
 
+    def test_citacion_y_sentencia_del_1er_jpl_es_la_del_modelo(self):
+        t = _renderizar(1, "CITACION_SENTENCIA")
+        self.assertIn("Cítese al denunciado anteriormente individualizado a formular descargo "
+                      "el día 06/10/2026, a las 09:30 hrs., por transitar sin dispositivo", t)
+        self.assertIn("se le CONDENA al pago de una multa de 1 UTM, por infringir el artículo 114", t)
+        self.assertIn("Vehículo PPU: ZZZZ99-7", t)
+        self.assertIn("Queda notificado en este acto", t)
+        self.assertIn("NOTA:", t)
+
+    def test_citacion_y_sentencia_del_1er_jpl_sin_hora_ni_fecha(self):
+        cfg = _config(1, "CITACION_SENTENCIA")
+        for slot, esperado in [
+            (("06/10/2026", ""), "a formular descargo el día 06/10/2026, por transitar"),
+            (("A COORDINAR CON EL JUZGADO", ""),
+             "a formular descargo en fecha y hora a coordinar con el Juzgado, por transitar"),
+        ]:
+            with self.subTest(slot=slot):
+                ctx = construir_contexto(_pagina(_info()), slot, 1, cfg)
+                t = _texto(renderizar_carta(resolver_plantilla(cfg, "CITACION_SENTENCIA"), ctx, cfg))
+                self.assertIn(esperado, t)
+                self.assertNotIn("Hrs.", t)
+
     def test_sentencia_usa_la_fecha_de_la_sentencia_y_no_la_agenda(self):
         for n in (1, 2, 3):
             t = _renderizar(n, "SENTENCIA")
-            self.assertIn("que con fecha 02/10/2026, atendida la rebeldía, se condena al pago de 1 UTM", t)
+            if n == 1:
+                # La resolución va fechada el día de la sentencia, en palabras.
+                self.assertIn("Maipu, 2 de octubre de 2026", t.replace("Maipú", "Maipu"))
+                self.assertIn("SE RESUELVE: Condénese al pago de una multa de 1 UTM, al haber incurrido", t)
+            else:
+                self.assertIn("que con fecha 02/10/2026, atendida la rebeldía, se condena al pago de 1 UTM", t)
             self.assertNotIn("06/10/2026", t)
             self.assertNotIn("09:30", t)
 
@@ -133,9 +172,28 @@ class TestPlantillasPorDefecto(unittest.TestCase):
         self.assertIn("en fecha y hora a coordinar con el Juzgado", t)
 
     def test_multas_distintas_no_afirman_un_monto_unico(self):
-        t = _renderizar(1, "CITACION_SENTENCIA", info=_info((1, 2)))
+        t = _renderizar(2, "CITACION_SENTENCIA", info=_info((1, 2)))
         self.assertIn("al pago de la multa indicada por infracción", t)
         self.assertIn("2 UTM", t)
+        for tipo, frase in [("CITACION_SENTENCIA", "se le CONDENA al pago de la multa indicada, por infringir"),
+                            ("SENTENCIA", "Condénese al pago de la multa indicada, al haber incurrido")]:
+            with self.subTest(tipo=tipo):
+                t = _renderizar(1, tipo, info=_info((1, 2)))
+                self.assertIn(frase, t)
+                self.assertNotIn("una multa de la multa", t)
+                self.assertIn("2 UTM", t)
+
+    def test_las_plantillas_no_traen_firmas_ni_datos_de_personas(self):
+        """Las del repo (público) no llevan imágenes —firma y timbre se suben
+        en /plantilla/— ni el nombre de quien las editó."""
+        import zipfile
+        for n in (1, 2, 3):
+            for tipo in TIPOS_CARTA:
+                with self.subTest(juzgado=n, tipo=tipo):
+                    with zipfile.ZipFile(ruta_plantilla_defecto(f"jpl{n}", "", tipo)) as z:
+                        self.assertEqual([f for f in z.namelist() if f.startswith("word/media/")], [])
+                        core = z.read("docProps/core.xml").decode()
+                        self.assertNotRegex(core, r"<cp:lastModifiedBy>[^<]")
 
     def test_patente_con_mas_causas_que_una_pagina_avisa_la_parte(self):
         info = _info((1,) * 25)

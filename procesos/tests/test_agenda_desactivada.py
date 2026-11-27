@@ -188,6 +188,18 @@ class AgendaDesactivadaTest(TestCase):
         self.assertIn("en fecha y hora a coordinar con el Juzgado", texto)
         self.assertContains(resp, "sin ninguna causa dentro de los bloques de folios indicados")
 
+    def test_citacion_y_sentencia_sin_fecha_avisa_la_condena_sin_dia_senalado(self):
+        resp = self._subir("CITACION_SENTENCIA", fechas=f"1000-1001 {self._futura()}")
+        texto = self._texto_de_las_cartas(GeneracionCartas.objects.get())
+        self.assertIn("en fecha y hora a coordinar con el Juzgado", texto)
+        self.assertEqual(GeneracionCartas.objects.get().avisos.get("condena_sin_fecha"), 1)
+        self.assertContains(resp, "de citación y sentencia sin fecha de audiencia")
+
+    def test_citacion_y_sentencia_con_fecha_no_avisa_la_condena(self):
+        resp = self._subir("CITACION_SENTENCIA", fechas=self._futura())
+        self.assertNotIn("condena_sin_fecha", GeneracionCartas.objects.get().avisos)
+        self.assertNotContains(resp, "de citación y sentencia sin fecha de audiencia")
+
     def test_fechas_distintas_en_una_patente_usa_la_mas_temprana_y_nombra_ejemplos(self):
         a, b = self._futura(60), self._futura(61)
         filas = [fila_nomina(pat="AAAA11", nro_parte=str(4000 + i), rol=f"2026-Y-{1000 + i}") for i in range(2)]

@@ -585,10 +585,17 @@ def _preparar(juzgado, usuario, solicitud, carpeta_rel, carpeta_abs):
             if tipo_carta != TipoCarta.SENTENCIA:
                 avisos["agenda_desactivada"] = True
                 # La fecha de citación la fija el Juzgado en SMC y viene en la
-                # nómina (sin hora): la carta la imprime tal cual.
+                # nómina (sin hora). La FECHA_CITACION del export de SMC no se
+                # lee: no es la fecha de la audiencia (ver motor/columnas.py).
                 reserva.slots, avisos_citacion = _citaciones_de_la_nomina(df_limpio, incluidos, solicitud.bloques_audiencia,
                                                                         (solicitud.fechas_tanda, solicitud.cartas_por_fecha))
                 avisos.update(avisos_citacion)
+                if tipo_carta == TipoCarta.CITACION_SENTENCIA:
+                    # Condena «si no comparece el día señalado» sin día señalado:
+                    # la carta sale, pero quien genera debe verlo antes de enviarla.
+                    sin_dia = sum(1 for pat in incluidos if pat not in reserva.slots)
+                    if sin_dia:
+                        avisos["condena_sin_fecha"] = sin_dia
             with transaction.atomic():
                 return _encolar(reserva)
         if solicitud.bloques_audiencia or tiene_columna(df_limpio, "FECHA_CITA"):

@@ -7,7 +7,7 @@ juzgado. Porteado de generar_notificaciones_JPL1.py.
 import re
 from collections import Counter
 
-from .columnas import get_col, parsear_fecha
+from .columnas import fecha_para_carta, get_col, hora_para_carta, parsear_fecha, sin_id_smc
 from .multas import buscar_multa
 
 
@@ -106,12 +106,12 @@ def construir_grupos(df, tabla_multas, utm_multa_defecto):
             else:
                 grupos[pat]["citacion_ilegible"] = True
 
-        disposicion_row = get_col(row, "DISPOSICION") or "—"
+        disposicion_row = sin_id_smc(get_col(row, "DISPOSICION")) or "—"
         grupos[pat]["causas"].append({
             "nroParte": nro_parte_row or "—",
             "rol_raw": get_col(row, "ROL"),
-            "fecha": fecha_row or "—",
-            "hora": get_col(row, "HORA_INF") or "—",
+            "fecha": fecha_para_carta(fecha_row) or "—",
+            "hora": hora_para_carta(get_col(row, "HORA_INF")) or "—",
             "lugar": get_col(row, "LUGAR") or "—",
             "disposicion": disposicion_row,
             "monto": buscar_multa(disposicion_row, tabla_multas, utm_multa_defecto, avisos_no_encontrados),

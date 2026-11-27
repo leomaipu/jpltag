@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .columnas import parsear_fecha
+from .fechas_en_letras import MESES
 
 
 # Las cartas llevan la fecha de Chile aunque el servidor ande en UTC.
@@ -32,10 +33,17 @@ BLOQUE_POSTAL_DEFECTO = "SANTIAGO 16"
 
 
 def fecha_hoy():
-    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-             "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     h = ahora_chile()
-    return f"{h.day} de {meses[h.month - 1]} de {h.year}"
+    return f"{h.day} de {MESES[h.month - 1]} de {h.year}"
+
+
+def fecha_en_palabras(fecha_txt):
+    """«06/10/2026» → «6 de octubre de 2026», como fecha_hoy(). Vacío si no
+    es una fecha (p. ej. «A COORDINAR CON EL JUZGADO»)."""
+    anio, mes, dia = parsear_fecha(fecha_txt) if str(fecha_txt or "").strip() else (None, None, None)
+    if not anio:
+        return ""
+    return f"{dia} de {MESES[mes - 1]} de {anio}"
 
 
 def fmt_pesos(n):

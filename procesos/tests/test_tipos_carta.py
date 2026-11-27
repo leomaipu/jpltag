@@ -87,7 +87,9 @@ class TiposDeCartaTest(TestCase):
         gen, cartas = self._cartas()
         self.assertEqual(gen.tipo_carta, "CITACION_SENTENCIA")
         t = _texto_descargado(self.client, cartas)
-        self.assertIn("será CONDENADO(A) al pago de 1 UTM por infracción", t)
+        # Redacción del modelo del 1er JPL (motor/plantillas_defecto/jpl1).
+        self.assertIn("se le CONDENA al pago de una multa de 1 UTM", t)
+        self.assertIn(f"a formular descargo el día {self.bloque.fecha:%d/%m/%Y}, a las 09:30 hrs.", t)
 
     def test_sentencia_exige_la_fecha_de_la_sentencia(self):
         resp = self._subir("SENTENCIA")
@@ -103,8 +105,11 @@ class TiposDeCartaTest(TestCase):
         self.assertEqual(gen.fecha_sentencia, date(2026, 10, 2))
         self.assertEqual(gen.total_sin_cupo_agenda, 0)
         t = _texto_descargado(self.client, cartas)
-        self.assertIn("NOTIFÍQUESE la SENTENCIA", t)
-        self.assertIn("con fecha 02/10/2026", t)
+        # Redacción del modelo del 1er JPL: la resolución va fechada el día de
+        # la sentencia, en palabras.
+        self.assertIn("NOTIFICACIÓN DE SENTENCIA", t)
+        self.assertIn("SE RESUELVE: Condénese al pago de una multa de 1 UTM", t)
+        self.assertIn("2 de octubre de 2026", t)
         self.bloque.refresh_from_db()
         self.assertEqual(self.bloque.cupos_usados, 0)
 

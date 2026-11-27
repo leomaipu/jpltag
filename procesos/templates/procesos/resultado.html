@@ -92,7 +92,7 @@
 </section>
 {% endif %}
 
-{% if generacion.avisos.citacion_ignorada_por_agenda or generacion.avisos.audiencia_sin_bloque or generacion.avisos.audiencia_fechas_distintas or generacion.avisos.audiencia_causas_fuera_de_bloques or generacion.avisos.citacion_sin_columna or generacion.avisos.citacion_sin_fecha or generacion.avisos.citacion_fechas_distintas or generacion.avisos.citacion_en_el_pasado or generacion.avisos.citacion_ilegible %}
+{% if generacion.avisos.condena_sin_fecha or generacion.avisos.citacion_ignorada_por_agenda or generacion.avisos.audiencia_sin_bloque or generacion.avisos.audiencia_fechas_distintas or generacion.avisos.audiencia_causas_fuera_de_bloques or generacion.avisos.citacion_sin_columna or generacion.avisos.citacion_sin_fecha or generacion.avisos.citacion_fechas_distintas or generacion.avisos.citacion_en_el_pasado or generacion.avisos.citacion_ilegible %}
 <section class="bloque">
   <h2 class="seccion__titulo"><span class="estado estado--aviso">Revisa la fecha de citación</span></h2>
   <ul class="lista">
@@ -104,6 +104,7 @@
     {% if generacion.avisos.citacion_sin_fecha %}<li>{{ generacion.avisos.citacion_sin_fecha }} patente{{ generacion.avisos.citacion_sin_fecha|pluralize }} sin fecha de citación legible: su carta sale «a coordinar con el Juzgado».</li>{% endif %}
     {% if generacion.avisos.citacion_ilegible %}<li>{{ generacion.avisos.citacion_ilegible }} patente{{ generacion.avisos.citacion_ilegible|pluralize }} con una fecha de citación que no se pudo leer (se ignoró esa fila).</li>{% endif %}
     {% if generacion.avisos.citacion_fechas_distintas %}<li>{{ generacion.avisos.citacion_fechas_distintas }} patente{{ generacion.avisos.citacion_fechas_distintas|pluralize }} con causas de fechas de citación distintas: la carta usa la más temprana.</li>{% endif %}
+    {% if generacion.avisos.condena_sin_fecha %}<li><strong>{{ generacion.avisos.condena_sin_fecha }} carta{{ generacion.avisos.condena_sin_fecha|pluralize }} de citación y sentencia sin fecha de audiencia:</strong> salen «en fecha y hora a coordinar con el Juzgado», pero su texto condena si no comparece «el día señalado». Revísalas antes de enviarlas, o vuelve a generar indicando las fechas de audiencia.</li>{% endif %}
     {% if generacion.avisos.citacion_en_el_pasado %}<li>{{ generacion.avisos.citacion_en_el_pasado }} patente{{ generacion.avisos.citacion_en_el_pasado|pluralize }} con fecha de citación anterior a hoy en la nómina: esa fecha no se imprime y la carta sale «a coordinar con el Juzgado». Indica las fechas de audiencia al generar.</li>{% endif %}
   </ul>
 </section>
